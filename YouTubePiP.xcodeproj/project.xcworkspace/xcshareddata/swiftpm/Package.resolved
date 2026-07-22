@@ -1,0 +1,33 @@
+{
+  "originHash" : "dec0b7a478fc136a87a9c7a6f95b4e507d04e2e70e0f8fc500574d48aa659153",
+  "pins" : [
+    {
+      "identity" : "ffmpegkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kingslay/FFmpegKit.git",
+      "state" : {
+        "revision" : "c32be9bfb628042737ad3ef622e930c5c7b15954",
+        "version" : "6.1.4"
+      }
+    },
+    {
+      "identity" : "ksplayer",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kingslay/KSPlayer.git",
+      "state" : {
+        "revision" : "bdfa2da39bb18865b317c4ffd08cdef5f8efc043",
+        "version" : "2.3.4"
+      }
+    },
+    {
+      "identity" : "youtubekit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/b5i/YouTubeKit.git",
+      "state" : {
+        "revision" : "fc552768dfdaddea6c02c3c2d4e8d8e8bbf4772c",
+        "version" : "2.8.0"
+      }
+    }
+  ],
+  "version" : 3
+}

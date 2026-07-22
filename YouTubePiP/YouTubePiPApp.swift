@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 mode: .default,
                 options: []
             )
+            try session.setActive(true)
         } catch {
             print("Unable to configure background playback audio session: \(error)")
         }

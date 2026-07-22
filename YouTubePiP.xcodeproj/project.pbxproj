@@ -14,6 +14,11 @@
 		000000000000000000000105 /* BrowserViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000208 /* BrowserViewModel.swift */; };
 		000000000000000000000106 /* MediaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000209 /* MediaService.swift */; };
 		000000000000000000000107 /* YouTubeWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000210 /* YouTubeWebView.swift */; };
+		000000000000000000000108 /* KSPlayer in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000000001101 /* KSPlayer */; };
+		000000000000000000000109 /* NativeAudioTrack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000211 /* NativeAudioTrack.swift */; };
+		000000000000000000000110 /* YouTubeAudioResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000212 /* YouTubeAudioResolver.swift */; };
+		000000000000000000000111 /* NowPlayingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000213 /* NowPlayingController.swift */; };
+		000000000000000000000112 /* YouTubeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000000001102 /* YouTubeKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +32,9 @@
 		000000000000000000000208 /* BrowserViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserViewModel.swift; sourceTree = "<group>"; };
 		000000000000000000000209 /* MediaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaService.swift; sourceTree = "<group>"; };
 		000000000000000000000210 /* YouTubeWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeWebView.swift; sourceTree = "<group>"; };
+		000000000000000000000211 /* NativeAudioTrack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAudioTrack.swift; sourceTree = "<group>"; };
+		000000000000000000000212 /* YouTubeAudioResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeAudioResolver.swift; sourceTree = "<group>"; };
+		000000000000000000000213 /* NowPlayingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -34,6 +42,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				000000000000000000000108 /* KSPlayer in Frameworks */,
+				000000000000000000000112 /* YouTubeKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -60,6 +70,9 @@
 				000000000000000000000208 /* BrowserViewModel.swift */,
 				000000000000000000000209 /* MediaService.swift */,
 				000000000000000000000210 /* YouTubeWebView.swift */,
+				000000000000000000000211 /* NativeAudioTrack.swift */,
+				000000000000000000000212 /* YouTubeAudioResolver.swift */,
+				000000000000000000000213 /* NowPlayingController.swift */,
 			);
 			path = YouTubePiP;
 			sourceTree = "<group>";
@@ -88,6 +101,10 @@
 			dependencies = (
 			);
 			name = YouTubePiP;
+			packageProductDependencies = (
+				000000000000000000001101 /* KSPlayer */,
+				000000000000000000001102 /* YouTubeKit */,
+			);
 			productName = YouTubePiP;
 			productReference = 000000000000000000000205 /* YouTubePiP.app */;
 			productType = "com.apple.product-type.application";
@@ -116,6 +133,10 @@
 				Base,
 			);
 			mainGroup = 000000000000000000000401;
+			packageReferences = (
+				000000000000000000001001 /* XCRemoteSwiftPackageReference "KSPlayer" */,
+				000000000000000000001002 /* XCRemoteSwiftPackageReference "YouTubeKit" */,
+			);
 			productRefGroup = 000000000000000000000403 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -147,10 +168,45 @@
 				000000000000000000000105 /* BrowserViewModel.swift in Sources */,
 				000000000000000000000106 /* MediaService.swift in Sources */,
 				000000000000000000000107 /* YouTubeWebView.swift in Sources */,
+				000000000000000000000109 /* NativeAudioTrack.swift in Sources */,
+				000000000000000000000110 /* YouTubeAudioResolver.swift in Sources */,
+				000000000000000000000111 /* NowPlayingController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		000000000000000000001001 /* XCRemoteSwiftPackageReference "KSPlayer" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kingslay/KSPlayer.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.3.4;
+			};
+		};
+		000000000000000000001002 /* XCRemoteSwiftPackageReference "YouTubeKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/b5i/YouTubeKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.8.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		000000000000000000001101 /* KSPlayer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 000000000000000000001001 /* XCRemoteSwiftPackageReference "KSPlayer" */;
+			productName = KSPlayer;
+		};
+		000000000000000000001102 /* YouTubeKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 000000000000000000001002 /* XCRemoteSwiftPackageReference "YouTubeKit" */;
+			productName = YouTubeKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		000000000000000000000801 /* Debug */ = {
