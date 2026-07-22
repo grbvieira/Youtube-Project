@@ -63,7 +63,11 @@ final class BrowserViewModel: ObservableObject {
 
     func prepareForBackgroundPlayback() {
         if pictureInPictureRequested {
-            return
+            if audioOnly {
+                exitPictureInPicture()
+            } else {
+                return
+            }
         }
 
         if audioOnly {
@@ -72,6 +76,11 @@ final class BrowserViewModel: ObservableObject {
             prepareVideoElements()
         }
         webView?.evaluateJavaScript(Self.prepareForBackgroundPlaybackScript)
+    }
+
+    private func exitPictureInPicture() {
+        webView?.evaluateJavaScript(Self.exitPictureInPictureScript)
+        pictureInPictureRequested = false
     }
 
     func prepareVideoElements() {
@@ -165,6 +174,27 @@ final class BrowserViewModel: ObservableObject {
         }
 
         return 'Reproducao preparada para segundo plano.';
+    })();
+    """
+
+    private static let exitPictureInPictureScript = """
+    (() => {
+        try {
+            if (document.pictureInPictureElement && typeof document.exitPictureInPicture === 'function') {
+                const request = document.exitPictureInPicture();
+                if (request && typeof request.catch === 'function') {
+                    request.catch(() => {});
+                }
+            }
+
+            document.querySelectorAll('video').forEach((video) => {
+                if (video.webkitPresentationMode === 'picture-in-picture' && typeof video.webkitSetPresentationMode === 'function') {
+                    video.webkitSetPresentationMode('inline');
+                }
+            });
+        } catch (error) {}
+
+        return 'Picture in Picture ocultado para o YouTube Music.';
     })();
     """
 
