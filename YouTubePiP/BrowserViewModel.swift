@@ -12,6 +12,7 @@ final class BrowserViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var pipMessage: String?
+    @Published private(set) var pictureInPictureRequested = false
 
     init(service: MediaService) {
         self.service = service
@@ -20,7 +21,7 @@ final class BrowserViewModel: ObservableObject {
     var serviceName: String { service.rawValue }
     var homeURL: URL { service.homeURL }
     var audioOnly: Bool { service.audioOnly }
-    var supportsPictureInPicture: Bool { !audioOnly }
+    var supportsPictureInPicture: Bool { true }
 
     func attach(_ webView: WKWebView) {
         self.webView = webView
@@ -56,10 +57,15 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func startPictureInPicture() {
+        pictureInPictureRequested = true
         runPictureInPictureScript(shouldShowResult: true)
     }
 
     func prepareForBackgroundPlayback() {
+        if pictureInPictureRequested {
+            return
+        }
+
         if audioOnly {
             prepareAudioOnlyMode()
         } else {
@@ -90,11 +96,14 @@ final class BrowserViewModel: ObservableObject {
                 guard let self, shouldShowResult else { return }
 
                 if let error {
+                    self.pictureInPictureRequested = false
                     self.pipMessage = "Nao foi possivel iniciar o PiP: \(error.localizedDescription)"
                     return
                 }
 
-                self.pipMessage = (result as? String) ?? "Solicitacao de PiP enviada ao player."
+                let message = (result as? String) ?? "Solicitacao de PiP enviada ao player."
+                self.pictureInPictureRequested = message.contains("solicitado") || message.contains("ja esta ativo")
+                self.pipMessage = message
             }
         }
     }
@@ -160,7 +169,7 @@ final class BrowserViewModel: ObservableObject {
     """
 
     private static let startPictureInPictureScript = """
-    (async () => {
+    (() => {
         const videos = Array.from(document.querySelectorAll('video'));
         const video = videos.find((item) => !item.paused && item.readyState > 0) || videos.find((item) => item.readyState > 0) || videos[0];
 
@@ -168,6 +177,13 @@ final class BrowserViewModel: ObservableObject {
             return 'Nenhum video foi encontrado na pagina. Abra e toque em um video antes de iniciar o PiP.';
         }
 
+        video.style.opacity = '';
+        video.style.pointerEvents = '';
+        video.style.position = '';
+        video.style.width = '';
+        video.style.height = '';
+        video.style.left = '';
+        video.style.top = '';
         video.setAttribute('playsinline', '');
         video.setAttribute('webkit-playsinline', '');
         video.disablePictureInPicture = false;
@@ -184,7 +200,10 @@ final class BrowserViewModel: ObservableObject {
             }
 
             if (document.pictureInPictureEnabled && typeof video.requestPictureInPicture === 'function') {
-                await video.requestPictureInPicture();
+                const request = video.requestPictureInPicture();
+                if (request && typeof request.catch === 'function') {
+                    request.catch(() => {});
+                }
                 return 'Picture in Picture solicitado ao player.';
             }
 

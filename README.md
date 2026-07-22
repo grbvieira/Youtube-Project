@@ -9,7 +9,7 @@ App iOS em SwiftUI que abre o YouTube e o YouTube Music em abas separadas, cada 
 - Sessao independente de navegacao e reproducao para cada aba.
 - YouTube Music em modo somente audio, com o video oculto para manter apenas a reproducao sonora.
 - Navegacao basica: voltar, avancar, inicio e recarregar.
-- Botao de Picture in Picture no toolbar.
+- Botao de Picture in Picture no toolbar das duas abas.
 - Midia inline habilitada.
 - Picture in Picture habilitado na configuracao da WebView.
 - Script injetado para preparar os elementos `<video>` do YouTube para PiP.
