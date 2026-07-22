@@ -17,6 +17,14 @@ App iOS em SwiftUI que abre o YouTube e o YouTube Music em abas separadas, cada 
 - Background mode `audio` no `Info.plist`, que cobre audio, AirPlay e Picture in Picture no iOS.
 - Keychain Sharing habilitado via `YouTubePiP.entitlements` para o grupo do proprio app.
 
+## Arquitetura
+
+- `ContentView.swift`: composicao das abas e ciclo de vida da cena.
+- `BrowserView.swift`: interface do navegador, status e comandos de usuario.
+- `BrowserViewModel.swift`: estado de navegacao, PiP, audio em segundo plano e scripts de midia.
+- `YouTubeWebView.swift`: ponte `UIViewRepresentable` entre SwiftUI e `WKWebView`.
+- `MediaService.swift`: configuracoes especificas do YouTube e YouTube Music.
+
 ## Como rodar
 
 Abra o projeto no Xcode:

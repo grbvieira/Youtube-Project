@@ -25,17 +25,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         configurePlaybackSession()
     }
 
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        configurePlaybackSession()
-    }
-
     private func configurePlaybackSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .moviePlayback, options: [.allowAirPlay])
-            try session.setActive(true)
+            try session.setCategory(
+                .playback,
+                mode: .default,
+                options: []
+            )
         } catch {
-            print("Unable to activate background playback audio session: \(error)")
+            print("Unable to configure background playback audio session: \(error)")
         }
     }
 }

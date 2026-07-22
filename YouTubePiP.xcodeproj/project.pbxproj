@@ -10,6 +10,10 @@
 		000000000000000000000101 /* YouTubePiPApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000201 /* YouTubePiPApp.swift */; };
 		000000000000000000000102 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000202 /* ContentView.swift */; };
 		000000000000000000000103 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000203 /* Assets.xcassets */; };
+		000000000000000000000104 /* BrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000207 /* BrowserView.swift */; };
+		000000000000000000000105 /* BrowserViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000208 /* BrowserViewModel.swift */; };
+		000000000000000000000106 /* MediaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000209 /* MediaService.swift */; };
+		000000000000000000000107 /* YouTubeWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000210 /* YouTubeWebView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,6 +23,10 @@
 		000000000000000000000204 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		000000000000000000000205 /* YouTubePiP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YouTubePiP.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000206 /* YouTubePiP.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = YouTubePiP.entitlements; sourceTree = "<group>"; };
+		000000000000000000000207 /* BrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserView.swift; sourceTree = "<group>"; };
+		000000000000000000000208 /* BrowserViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserViewModel.swift; sourceTree = "<group>"; };
+		000000000000000000000209 /* MediaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaService.swift; sourceTree = "<group>"; };
+		000000000000000000000210 /* YouTubeWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeWebView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -48,6 +56,10 @@
 				000000000000000000000203 /* Assets.xcassets */,
 				000000000000000000000204 /* Info.plist */,
 				000000000000000000000206 /* YouTubePiP.entitlements */,
+				000000000000000000000207 /* BrowserView.swift */,
+				000000000000000000000208 /* BrowserViewModel.swift */,
+				000000000000000000000209 /* MediaService.swift */,
+				000000000000000000000210 /* YouTubeWebView.swift */,
 			);
 			path = YouTubePiP;
 			sourceTree = "<group>";
@@ -131,6 +143,10 @@
 			files = (
 				000000000000000000000101 /* YouTubePiPApp.swift in Sources */,
 				000000000000000000000102 /* ContentView.swift in Sources */,
+				000000000000000000000104 /* BrowserView.swift in Sources */,
+				000000000000000000000105 /* BrowserViewModel.swift in Sources */,
+				000000000000000000000106 /* MediaService.swift in Sources */,
+				000000000000000000000107 /* YouTubeWebView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
