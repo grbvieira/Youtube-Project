@@ -3,41 +3,80 @@ import WebKit
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var webViewModel = WebViewModel()
+    @State private var selectedTab: AppTab = .youtube
+    @StateObject private var youtubeModel = WebViewModel(
+        homeURL: URL(string: "https://www.youtube.com")!,
+        serviceName: "YouTube",
+        audioOnly: false
+    )
+    @StateObject private var youtubeMusicModel = WebViewModel(
+        homeURL: URL(string: "https://music.youtube.com")!,
+        serviceName: "YouTube Music",
+        audioOnly: true
+    )
+
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            BrowserView(model: youtubeModel)
+                .tabItem {
+                    Label("YouTube", systemImage: "play.rectangle.fill")
+                }
+                .tag(AppTab.youtube)
+
+            BrowserView(model: youtubeMusicModel)
+                .tabItem {
+                    Label("YouTube Music", systemImage: "music.note")
+                }
+                .tag(AppTab.youtubeMusic)
+        }
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .background {
+                selectedModel.prepareForBackgroundPlayback()
+            }
+        }
+    }
+
+    private var selectedModel: WebViewModel {
+        selectedTab == .youtube ? youtubeModel : youtubeMusicModel
+    }
+}
+
+private enum AppTab: Hashable {
+    case youtube
+    case youtubeMusic
+}
+
+private struct BrowserView: View {
+    @ObservedObject var model: WebViewModel
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            YouTubeWebView(model: webViewModel)
+            YouTubeWebView(model: model)
 
             statusPanel
 
             browserToolbar
         }
         .background(Color(.systemBackground))
-        .onChange(of: scenePhase) { newPhase in
-            if newPhase == .background {
-                webViewModel.prepareForBackgroundPlayback()
-            }
-        }
     }
 
     @ViewBuilder
     private var statusPanel: some View {
-        if webViewModel.errorMessage != nil || webViewModel.pipMessage != nil {
+        if model.errorMessage != nil || model.pipMessage != nil {
             VStack(spacing: 12) {
-                if let message = webViewModel.errorMessage {
+                if let message = model.errorMessage {
                     Text(message)
                         .font(.callout)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.primary)
 
                     Button {
-                        webViewModel.loadHome()
+                        model.loadHome()
                     } label: {
                         Label("Tentar novamente", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(.borderedProminent)
-                } else if let message = webViewModel.pipMessage {
+                } else if let message = model.pipMessage {
                     Text(message)
                         .font(.callout)
                         .multilineTextAlignment(.center)
@@ -55,41 +94,43 @@ struct ContentView: View {
     private var browserToolbar: some View {
         HStack(spacing: 22) {
             Button {
-                webViewModel.goBack()
+                model.goBack()
             } label: {
                 Image(systemName: "chevron.backward")
             }
-            .disabled(!webViewModel.canGoBack)
+            .disabled(!model.canGoBack)
             .accessibilityLabel("Voltar")
 
             Button {
-                webViewModel.goForward()
+                model.goForward()
             } label: {
                 Image(systemName: "chevron.forward")
             }
-            .disabled(!webViewModel.canGoForward)
+            .disabled(!model.canGoForward)
             .accessibilityLabel("Avancar")
 
             Button {
-                webViewModel.loadHome()
+                model.loadHome()
             } label: {
                 Image(systemName: "house")
             }
             .accessibilityLabel("Inicio")
 
             Button {
-                webViewModel.reload()
+                model.reload()
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
             .accessibilityLabel("Recarregar")
 
-            Button {
-                webViewModel.startPictureInPicture()
-            } label: {
-                Image(systemName: "pip.enter")
+            if !model.audioOnly {
+                Button {
+                    model.startPictureInPicture()
+                } label: {
+                    Image(systemName: "pip.enter")
+                }
+                .accessibilityLabel("Picture in Picture")
             }
-            .accessibilityLabel("Picture in Picture")
         }
         .font(.headline)
         .frame(height: 48)
@@ -101,7 +142,9 @@ struct ContentView: View {
 }
 
 final class WebViewModel: ObservableObject {
-    let homeURL = URL(string: "https://www.youtube.com")!
+    let homeURL: URL
+    let serviceName: String
+    let audioOnly: Bool
 
     weak var webView: WKWebView?
 
@@ -110,6 +153,12 @@ final class WebViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var pipMessage: String?
+
+    init(homeURL: URL, serviceName: String, audioOnly: Bool) {
+        self.homeURL = homeURL
+        self.serviceName = serviceName
+        self.audioOnly = audioOnly
+    }
 
     func attach(_ webView: WKWebView) {
         self.webView = webView
@@ -156,6 +205,10 @@ final class WebViewModel: ObservableObject {
         webView?.evaluateJavaScript(Self.prepareVideoElementsScript)
     }
 
+    func prepareAudioOnlyMode() {
+        webView?.evaluateJavaScript(Self.audioOnlyScript)
+    }
+
     private func runPictureInPictureScript(shouldShowResult: Bool) {
         guard let webView else {
             if shouldShowResult {
@@ -194,6 +247,28 @@ final class WebViewModel: ObservableObject {
         if (!window.__youtubePiPObserver) {
             window.__youtubePiPObserver = new MutationObserver(prepare);
             window.__youtubePiPObserver.observe(document.documentElement, { childList: true, subtree: true });
+        }
+    })();
+    """
+
+    static let audioOnlyScript = """
+    (() => {
+        const apply = () => {
+            document.querySelectorAll('video').forEach((video) => {
+                video.style.opacity = '0';
+                video.style.pointerEvents = 'none';
+                video.style.position = 'fixed';
+                video.style.width = '1px';
+                video.style.height = '1px';
+                video.style.left = '-10px';
+                video.style.top = '-10px';
+            });
+        };
+
+        apply();
+        if (!window.__youtubeMusicAudioOnlyObserver) {
+            window.__youtubeMusicAudioOnlyObserver = new MutationObserver(apply);
+            window.__youtubeMusicAudioOnlyObserver.observe(document.documentElement, { childList: true, subtree: true });
         }
     })();
     """
@@ -250,7 +325,7 @@ struct YouTubeWebView: UIViewRepresentable {
         configuration.websiteDataStore = .default()
         configuration.userContentController.addUserScript(
             WKUserScript(
-                source: WebViewModel.prepareVideoElementsScript,
+                source: model.audioOnly ? WebViewModel.audioOnlyScript : WebViewModel.prepareVideoElementsScript,
                 injectionTime: .atDocumentEnd,
                 forMainFrameOnly: false
             )
@@ -286,7 +361,11 @@ struct YouTubeWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             model.isLoading = false
-            model.prepareVideoElements()
+            if model.audioOnly {
+                model.prepareAudioOnlyMode()
+            } else {
+                model.prepareVideoElements()
+            }
             updateNavigationState(webView)
         }
 
@@ -320,7 +399,7 @@ struct YouTubeWebView: UIViewRepresentable {
                 return
             }
 
-            model.errorMessage = "Nao foi possivel carregar o YouTube. Verifique sua conexao e tente novamente."
+            model.errorMessage = "Nao foi possivel carregar o \(model.serviceName). Verifique sua conexao e tente novamente."
         }
 
         private func updateNavigationState(_ webView: WKWebView) {

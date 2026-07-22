@@ -1,16 +1,19 @@
 # YouTube PiP
 
-App iOS em SwiftUI que abre o YouTube em uma `WKWebView` na tela inicial.
+App iOS em SwiftUI que abre o YouTube e o YouTube Music em abas separadas, cada uma usando sua propria `WKWebView`.
 
 ## Recursos configurados
 
-- `WKWebView` carregando `https://www.youtube.com`.
+- Aba YouTube carregando `https://www.youtube.com`.
+- Aba YouTube Music carregando `https://music.youtube.com`.
+- Sessao independente de navegacao e reproducao para cada aba.
+- YouTube Music em modo somente audio, com o video oculto para manter apenas a reproducao sonora.
 - Navegacao basica: voltar, avancar, inicio e recarregar.
 - Botao de Picture in Picture no toolbar.
 - Midia inline habilitada.
 - Picture in Picture habilitado na configuracao da WebView.
 - Script injetado para preparar os elementos `<video>` do YouTube para PiP.
-- Sessao de audio configurada como `.playback`.
+- Sessao de audio configurada como `.playback` para manter audio em segundo plano nas duas abas.
 - Background mode `audio` no `Info.plist`, que cobre audio, AirPlay e Picture in Picture no iOS.
 - Keychain Sharing habilitado via `YouTubePiP.entitlements` para o grupo do proprio app.
 
