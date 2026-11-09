@@ -2,16 +2,18 @@ import Foundation
 import YouTubeKit
 
 actor YouTubeAudioResolver {
-    private let model = YouTubeModel()
+    // `YouTubeModel` nao e `Sendable`; como so guarda configuracao (idioma, cookies),
+    // cada requisicao cria o seu em vez de compartilhar uma instancia entre threads.
 
     func resolve(_ track: NativeAudioTrack) async throws -> NativeAudioTrack {
         let response = try await YTVideo(videoId: track.videoID)
-            .fetchStreamingInfosWithDownloadFormatsThrowing(youtubeModel: model)
+            .fetchStreamingInfosWithDownloadFormatsThrowing(youtubeModel: YouTubeModel())
 
         let formats = response.downloadFormats.compactMap { $0 as? AudioOnlyFormat }
         let audioFormat = preferredFormat(in: formats)
         let fallbackFormat = response.defaultFormats.first { $0.url != nil }
-        guard let streamURL = audioFormat?.url ?? response.videoInfos.streamingURL ?? fallbackFormat?.url else {
+        // O manifesto HLS e o formato nativo do AVPlayer (video H.264 + audio AAC, adaptativo).
+        guard let streamURL = response.videoInfos.streamingURL ?? audioFormat?.url ?? fallbackFormat?.url else {
             throw AudioResolverError.missingAudioStream
         }
 
@@ -32,7 +34,7 @@ actor YouTubeAudioResolver {
         if let playlistID, !playlistID.isEmpty {
             let browseID = playlistID.hasPrefix("VL") ? playlistID : "VL" + playlistID
             if let response = try? await YTPlaylist(playlistId: browseID)
-                .fetchVideosThrowing(youtubeModel: model)
+                .fetchVideosThrowing(youtubeModel: YouTubeModel())
             {
                 let tracks = response.results.map(makeTrack)
                 if tracks.contains(where: { $0.videoID == currentTrack.videoID }) {
@@ -42,7 +44,7 @@ actor YouTubeAudioResolver {
         }
 
         let response = try await YTVideo(videoId: currentTrack.videoID)
-            .fetchMoreInfosThrowing(youtubeModel: model)
+            .fetchMoreInfosThrowing(youtubeModel: YouTubeModel())
         let recommendations = response.recommendedVideos
             .compactMap { $0 as? YTVideo }
             .prefix(20)

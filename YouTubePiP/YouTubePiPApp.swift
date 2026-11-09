@@ -1,4 +1,3 @@
-import AVFoundation
 import SwiftUI
 
 @main
@@ -17,25 +16,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        configurePlaybackSession()
+        // Apenas a categoria: a sessao e ativada quando algo realmente toca,
+        // para nao interromper o audio de outros apps ao abrir o app.
+        AudioSessionManager.shared.configureCategory()
         return true
-    }
-
-    func applicationDidBecomeActive(_ application: UIApplication) {
-        configurePlaybackSession()
-    }
-
-    private func configurePlaybackSession() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(
-                .playback,
-                mode: .default,
-                options: []
-            )
-            try session.setActive(true)
-        } catch {
-            print("Unable to configure background playback audio session: \(error)")
-        }
     }
 }

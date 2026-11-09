@@ -2,7 +2,7 @@ import SwiftUI
 import WebKit
 
 struct YouTubeWebView: UIViewRepresentable {
-    @ObservedObject var viewModel: BrowserViewModel
+    let viewModel: BrowserViewModel
 
     func makeCoordinator() -> Coordinator {
         Coordinator(viewModel: viewModel)
@@ -14,7 +14,20 @@ struct YouTubeWebView: UIViewRepresentable {
         configuration.allowsPictureInPictureMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.websiteDataStore = .default()
-        configuration.userContentController.addUserScript(
+
+        let contentController = configuration.userContentController
+        contentController.add(
+            WeakScriptMessageHandler(context.coordinator),
+            name: BrowserViewModel.mediaEventsHandlerName
+        )
+        contentController.addUserScript(
+            WKUserScript(
+                source: BrowserViewModel.mediaEventsScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
+        contentController.addUserScript(
             WKUserScript(
                 source: viewModel.audioOnly ? BrowserViewModel.audioOnlyScript : BrowserViewModel.prepareVideoElementsScript,
                 injectionTime: .atDocumentEnd,
@@ -37,35 +50,35 @@ struct YouTubeWebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {}
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    @MainActor
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         private let viewModel: BrowserViewModel
 
         init(viewModel: BrowserViewModel) {
             self.viewModel = viewModel
         }
 
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            viewModel.handleMediaEvent(message.body)
+        }
+
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            viewModel.isLoading = true
-            viewModel.errorMessage = nil
-            updateNavigationState(webView)
+            viewModel.navigationStarted(in: webView)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            viewModel.isLoading = false
-            if viewModel.audioOnly {
-                viewModel.prepareAudioOnlyMode()
-            } else {
-                viewModel.prepareVideoElements()
-            }
-            updateNavigationState(webView)
+            viewModel.navigationFinished(in: webView)
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            finishWithError(error, webView: webView)
+            viewModel.navigationFailed(in: webView, error: error)
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            finishWithError(error, webView: webView)
+            viewModel.navigationFailed(in: webView, error: error)
         }
 
         func webView(
@@ -80,22 +93,21 @@ struct YouTubeWebView: UIViewRepresentable {
 
             return nil
         }
+    }
+}
 
-        private func finishWithError(_ error: Error, webView: WKWebView) {
-            viewModel.isLoading = false
-            updateNavigationState(webView)
+/// `WKUserContentController` retem o handler com referencia forte; este proxy evita o ciclo.
+private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    private weak var target: WKScriptMessageHandler?
 
-            let nsError = error as NSError
-            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
-                return
-            }
+    init(_ target: WKScriptMessageHandler) {
+        self.target = target
+    }
 
-            viewModel.errorMessage = "Nao foi possivel carregar o \(viewModel.serviceName). Verifique sua conexao e tente novamente."
-        }
-
-        private func updateNavigationState(_ webView: WKWebView) {
-            viewModel.canGoBack = webView.canGoBack
-            viewModel.canGoForward = webView.canGoForward
-        }
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        target?.userContentController(userContentController, didReceive: message)
     }
 }

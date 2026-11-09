@@ -23,7 +23,11 @@ struct NativeAudioTrack: Identifiable, Sendable {
 }
 
 struct NativeAudioCapture {
+    /// Faixa atual, sem URL de stream: ela sempre e resolvida pelo `videoID`.
     let currentTrack: NativeAudioTrack
+    /// URL de audio observada na pagina. So e usada se a resolucao pelo `videoID` falhar,
+    /// pois pode pertencer a faixa pre-carregada pelo YouTube Music.
+    let fallbackStreamURL: URL?
     let currentTime: TimeInterval
     let playlistID: String?
     let queue: [NativeAudioTrack]

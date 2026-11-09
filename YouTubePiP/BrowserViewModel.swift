@@ -1,13 +1,16 @@
-import AVFoundation
 import Foundation
 import Combine
-import KSPlayer
+import UIKit
 import WebKit
 
+@MainActor
 final class BrowserViewModel: ObservableObject {
     let service: MediaService
 
     weak var webView: WKWebView?
+
+    /// Chamado quando esta aba comeca a tocar (web ou nativo), para pausar a outra aba.
+    var onPlaybackStarted: (() -> Void)?
 
     @Published var canGoBack = false
     @Published var canGoForward = false
@@ -16,38 +19,62 @@ final class BrowserViewModel: ObservableObject {
     @Published var pipMessage: String?
     @Published var mediaDiagnostics: String?
     @Published private(set) var hasNativeAudioCandidate = false
+    /// Ha uma faixa/video no player nativo (tocando, pausado ou carregando).
     @Published private(set) var isNativeAudioActive = false
     @Published private(set) var isNativeAudioPlaying = false
-    @Published private(set) var pictureInPictureRequested = false
+    @Published private(set) var isPictureInPictureActive = false
+    @Published private(set) var nowPlayingTitle = ""
+    @Published private(set) var nowPlayingArtist = ""
+    @Published private(set) var nativeElapsed: TimeInterval = 0
+    @Published private(set) var nativeDuration: TimeInterval = 0
+    @Published private(set) var canSkipToNext = false
+
+    private(set) var isWebMediaPlaying = false
+
+    /// O player nativo. Para videos, `nativePlayer.videoView` e exibido no topo da aba.
+    let nativePlayer = NativePlayer()
 
     private let audioResolver = YouTubeAudioResolver()
+    private let nowPlayingController: NowPlayingController
     private var nativeAudioCapture: NativeAudioCapture?
-    private var nativePlayer: KSMEPlayer?
     private var isPreparingNativeAudio = false
     private var nativeQueue: [NativeAudioTrack] = []
     private var currentQueueIndex = 0
     private var queueGeneration = UUID()
+    private var retriedVideoIDs = Set<String>()
+    /// Videos que o player nativo nao conseguiu tocar; ficam na pagina para nao entrar em loop.
+    private var webOnlyVideoIDs = Set<String>()
     private var queueTask: Task<Void, Never>?
-    private var nowPlayingController: NowPlayingController?
+    private var prefetchTask: Task<Void, Never>?
+    private var populateTask: Task<Void, Never>?
+    private var wasPlayingBeforeInterruption = false
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
-    init(service: MediaService) {
+    init(service: MediaService, nowPlayingController: NowPlayingController) {
         self.service = service
+        self.nowPlayingController = nowPlayingController
 
-        if service.audioOnly {
-            let controller = NowPlayingController()
-            nowPlayingController = controller
-            controller.onPlay = { [weak self] in self?.resumeNativeAudioPlayback() }
-            controller.onPause = { [weak self] in self?.pauseNativeAudioPlayback() }
-            controller.onNext = { [weak self] in self?.playNextTrack() }
-            controller.onPrevious = { [weak self] in self?.playPreviousTrack() }
-            controller.onSeek = { [weak self] time in self?.seekNativeAudio(to: time) }
+        nativePlayer.onEvent = { [weak self] event in
+            self?.handleNativePlayerEvent(event)
+        }
+
+        AudioSessionManager.shared.observe { [weak self] event in
+            self?.handleAudioSessionEvent(event)
         }
     }
 
     var serviceName: String { service.rawValue }
     var homeURL: URL { service.homeURL }
     var audioOnly: Bool { service.audioOnly }
-    var supportsPictureInPicture: Bool { true }
+    var supportsPictureInPicture: Bool { !audioOnly }
+    /// O painel de video nativo deve aparecer.
+    var showsNativeVideo: Bool { !audioOnly && isNativeAudioActive }
+
+    private var currentNativeVideoID: String? {
+        nativeQueue.indices.contains(currentQueueIndex) ? nativeQueue[currentQueueIndex].videoID : nil
+    }
+
+    // MARK: - Navegacao
 
     func attach(_ webView: WKWebView) {
         self.webView = webView
@@ -58,7 +85,6 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func loadHome() {
-        stopNativeAudioPlayback(resumeWebPlayback: false)
         errorMessage = nil
         pipMessage = nil
         mediaDiagnostics = nil
@@ -66,7 +92,6 @@ final class BrowserViewModel: ObservableObject {
     }
 
     func reload() {
-        stopNativeAudioPlayback(resumeWebPlayback: false)
         errorMessage = nil
         pipMessage = nil
         mediaDiagnostics = nil
@@ -86,37 +111,113 @@ final class BrowserViewModel: ObservableObject {
         webView?.goForward()
     }
 
-    func startPictureInPicture() {
-        pictureInPictureRequested = true
-        runPictureInPictureScript(shouldShowResult: true)
+    func navigationStarted(in webView: WKWebView) {
+        isLoading = true
+        errorMessage = nil
+        updateNavigationState(webView)
     }
 
-    func prepareForBackgroundPlayback() {
-        if nativePlayer != nil {
-            activateAudioSession()
-            nativePlayer?.enterBackground()
-            return
-        }
-
+    func navigationFinished(in webView: WKWebView) {
+        isLoading = false
         if audioOnly {
-            if pictureInPictureRequested {
-                exitPictureInPicture()
-            }
-            captureCurrentMedia(showDiagnostics: false, startNativePlayback: true)
-            return
+            prepareAudioOnlyMode()
+        } else {
+            prepareVideoElements()
         }
-
-        if pictureInPictureRequested {
-            return
-        }
-
-        prepareVideoElements()
-        webView?.evaluateJavaScript(Self.prepareForBackgroundPlaybackScript)
+        updateNavigationState(webView)
     }
 
-    private func exitPictureInPicture() {
-        webView?.evaluateJavaScript(Self.exitPictureInPictureScript)
-        pictureInPictureRequested = false
+    func navigationFailed(in webView: WKWebView, error: Error) {
+        isLoading = false
+        updateNavigationState(webView)
+
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+            return
+        }
+
+        errorMessage = "Nao foi possivel carregar o \(serviceName). Verifique sua conexao e tente novamente."
+    }
+
+    private func updateNavigationState(_ webView: WKWebView) {
+        canGoBack = webView.canGoBack
+        canGoForward = webView.canGoForward
+    }
+
+    // MARK: - Eventos da pagina
+
+    /// Recebe eventos enviados por `mediaEventsScript` (play/pause/PiP).
+    func handleMediaEvent(_ body: Any) {
+        guard let event = body as? [String: Any], let type = event["type"] as? String else { return }
+
+        switch type {
+        case "playing":
+            isWebMediaPlaying = true
+            handleWebPlaybackStarted(videoID: (event["videoID"] as? String) ?? "")
+        case "paused":
+            isWebMediaPlaying = false
+        case "pip":
+            // PiP da propria pagina (so acontece quando o player nativo nao foi usado).
+            if !nativePlayer.hasItem {
+                isPictureInPictureActive = event["active"] as? Bool ?? false
+            }
+        default:
+            break
+        }
+    }
+
+    /// A pagina comecou a tocar. Com o app em primeiro plano (o iOS so permite iniciar
+    /// audio assim), o video/musica passa para o player nativo, que segue em segundo plano e PiP.
+    private func handleWebPlaybackStarted(videoID: String) {
+        guard !videoID.isEmpty, !webOnlyVideoIDs.contains(videoID) else {
+            onPlaybackStarted?()
+            return
+        }
+
+        if isNativeAudioActive, currentNativeVideoID == videoID {
+            // O player da pagina voltou a tocar o mesmo conteudo; o nativo continua.
+            pauseWebMedia()
+            return
+        }
+
+        guard UIApplication.shared.applicationState == .active else { return }
+
+        pauseWebMedia()
+        captureCurrentMedia(showDiagnostics: false, startNativePlayback: true)
+    }
+
+    // MARK: - Ciclo de vida / coordenacao
+
+    func didEnterBackground() {
+        nativePlayer.didEnterBackground()
+    }
+
+    func willEnterForeground() {
+        nativePlayer.willEnterForeground()
+    }
+
+    /// Pausa tudo nesta aba (usado quando a outra aba comeca a tocar).
+    func pauseAllMedia() {
+        pauseWebMedia()
+        if nativePlayer.isPictureInPictureActive {
+            nativePlayer.stopPictureInPicture()
+        }
+        pauseNativeAudioPlayback()
+    }
+
+    // MARK: - Picture in Picture
+
+    func startPictureInPicture() {
+        if nativePlayer.hasItem {
+            if nativePlayer.isPictureInPictureActive {
+                nativePlayer.stopPictureInPicture()
+            } else if !nativePlayer.startPictureInPicture() {
+                pipMessage = "O video ainda esta carregando. Tente o PiP de novo em instantes."
+            }
+            return
+        }
+
+        pipMessage = "Toque em um video para abrir o player e usar o Picture in Picture."
     }
 
     func prepareVideoElements() {
@@ -126,6 +227,8 @@ final class BrowserViewModel: ObservableObject {
     func prepareAudioOnlyMode() {
         webView?.evaluateJavaScript(Self.audioOnlyScript)
     }
+
+    // MARK: - Captura da midia da pagina
 
     func inspectCurrentMedia() {
         captureCurrentMedia(showDiagnostics: true, startNativePlayback: false)
@@ -144,52 +247,66 @@ final class BrowserViewModel: ObservableObject {
         hasNativeAudioCandidate = false
         pipMessage = showDiagnostics ? "Inspecionando a fonte da midia..." : nil
         webView.evaluateJavaScript(Self.mediaDiagnosticsScript) { [weak self] result, error in
-            DispatchQueue.main.async {
+            let json = result as? String
+            MainActor.assumeIsolated {
                 guard let self else { return }
-                self.isPreparingNativeAudio = false
+                self.handleCapturedMedia(
+                    json: json,
+                    error: error,
+                    showDiagnostics: showDiagnostics,
+                    startNativePlayback: startNativePlayback
+                )
+            }
+        }
+    }
 
-                if let error {
-                    if startNativePlayback {
-                        self.fallbackToWebBackgroundPlayback()
-                    } else {
-                        self.pipMessage = "Nao foi possivel inspecionar a midia: \(error.localizedDescription)"
-                    }
-                    return
-                }
+    private func handleCapturedMedia(
+        json: String?,
+        error: Error?,
+        showDiagnostics: Bool,
+        startNativePlayback: Bool
+    ) {
+        isPreparingNativeAudio = false
 
-                guard
-                    let json = result as? String,
-                    let data = json.data(using: .utf8),
-                    let object = try? JSONSerialization.jsonObject(with: data),
-                    let formattedData = try? JSONSerialization.data(
-                        withJSONObject: object,
-                        options: [.prettyPrinted, .sortedKeys]
-                    ),
-                    let report = String(data: formattedData, encoding: .utf8)
-                else {
-                    if startNativePlayback {
-                        self.fallbackToWebBackgroundPlayback()
-                    } else {
-                        self.pipMessage = "A pagina retornou um diagnostico de midia invalido."
-                    }
-                    return
-                }
+        if let error {
+            if startNativePlayback {
+                resumeWebMediaAfterNativeFailure(videoID: nil)
+            } else {
+                pipMessage = "Nao foi possivel inspecionar a midia: \(error.localizedDescription)"
+            }
+            return
+        }
 
-                self.pipMessage = nil
-                self.nativeAudioCapture = Self.nativeAudioCapture(from: object)
-                self.hasNativeAudioCandidate = self.nativeAudioCapture != nil
+        guard
+            let data = json?.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let formattedData = try? JSONSerialization.data(
+                withJSONObject: object,
+                options: [.prettyPrinted, .sortedKeys]
+            ),
+            let report = String(data: formattedData, encoding: .utf8)
+        else {
+            if startNativePlayback {
+                resumeWebMediaAfterNativeFailure(videoID: nil)
+            } else {
+                pipMessage = "A pagina retornou um diagnostico de midia invalido."
+            }
+            return
+        }
 
-                if showDiagnostics {
-                    self.mediaDiagnostics = report
-                }
+        pipMessage = nil
+        nativeAudioCapture = Self.nativeAudioCapture(from: object)
+        hasNativeAudioCandidate = nativeAudioCapture != nil
 
-                if startNativePlayback {
-                    if self.nativeAudioCapture != nil {
-                        self.startNativeAudioPlayback()
-                    } else {
-                        self.fallbackToWebBackgroundPlayback()
-                    }
-                }
+        if showDiagnostics {
+            mediaDiagnostics = report
+        }
+
+        if startNativePlayback {
+            if nativeAudioCapture != nil {
+                startNativeAudioPlayback()
+            } else {
+                resumeWebMediaAfterNativeFailure(videoID: nil)
             }
         }
     }
@@ -198,23 +315,35 @@ final class BrowserViewModel: ObservableObject {
         mediaDiagnostics = nil
     }
 
+    // MARK: - Player nativo
+
     func startNativeAudioPlayback() {
-        guard audioOnly, let capture = nativeAudioCapture else {
-            pipMessage = "Nenhuma URL direta de audio foi encontrada. Inicie a musica e inspecione novamente."
+        guard let capture = nativeAudioCapture else {
+            pipMessage = "Nenhum video ou musica foi identificado. Toque para reproduzir e tente novamente."
             return
         }
 
         resetNativeQueue()
         configureQueue(from: capture)
+        isNativeAudioActive = true
+        // Ativa a sessao agora, com o app em primeiro plano: o iOS nao deixa iniciar audio em segundo plano.
         activateAudioSession()
-        playTrack(at: currentQueueIndex, startTime: capture.currentTime)
-        populateQueueIfNeeded(capture.playlistID)
-        prefetchUpcomingTracks()
+        onPlaybackStarted?()
+        resolveAndPlayTrack(
+            at: currentQueueIndex,
+            startTime: capture.currentTime,
+            fallbackURL: capture.fallbackStreamURL
+        )
+        if audioOnly {
+            // Filas de playlist/radio fazem sentido no YouTube Music; no YouTube toca so o video aberto.
+            populateQueueIfNeeded(capture.playlistID)
+        }
     }
 
     private func configureQueue(from capture: NativeAudioCapture) {
         var seenIDs = Set<String>()
-        nativeQueue = capture.queue.filter { seenIDs.insert($0.videoID).inserted }
+        let pageQueue = audioOnly ? capture.queue : []
+        nativeQueue = pageQueue.filter { seenIDs.insert($0.videoID).inserted }
 
         if let index = nativeQueue.firstIndex(where: { $0.videoID == capture.currentTrack.videoID }) {
             nativeQueue[index] = capture.currentTrack.mergingMetadata(from: nativeQueue[index])
@@ -223,6 +352,7 @@ final class BrowserViewModel: ObservableObject {
             nativeQueue.insert(capture.currentTrack, at: 0)
             currentQueueIndex = 0
         }
+        publishCurrentTrack()
     }
 
     private func playTrack(at index: Int, startTime: TimeInterval = 0) {
@@ -238,168 +368,190 @@ final class BrowserViewModel: ObservableObject {
         }
 
         currentQueueIndex = index
-        shutdownNativePlayer()
         activateAudioSession()
-
-        let options = KSOptions()
-        options.videoDisable = true
-        options.startPlayTime = max(startTime, 0)
-        options.registerRemoteControll = false
-        options.userAgent = Self.mobileUserAgent
-        options.appendHeader([
-            "Origin": "https://music.youtube.com",
-            "Referer": "https://music.youtube.com/"
-        ])
-
-        let player = KSMEPlayer(url: streamURL, options: options)
-        player.delegate = self
-        nativePlayer = player
         isNativeAudioActive = true
         isNativeAudioPlaying = false
-        pipMessage = "Preparando audio no KSPlayer..."
+        pipMessage = nil
+        publishCurrentTrack()
         updateNowPlaying(isPlaying: false, elapsedTime: startTime)
-        player.prepareToPlay()
+        nativePlayer.load(url: streamURL, startTime: startTime, audioOnly: audioOnly)
     }
 
     func toggleNativeAudioPlayback() {
-        guard let player = nativePlayer else { return }
+        guard nativePlayer.hasItem else { return }
 
-        if player.isPlaying {
+        if nativePlayer.isPlaying {
             pauseNativeAudioPlayback()
         } else {
             resumeNativeAudioPlayback()
         }
     }
 
+    func skipToNextTrack() {
+        playNextTrack()
+    }
+
+    func seekNative(to time: TimeInterval) {
+        seekNativeAudio(to: time)
+    }
+
     private func resumeNativeAudioPlayback() {
-        guard let player = nativePlayer else { return }
+        guard nativePlayer.hasItem else { return }
         activateAudioSession()
-        player.play()
+        nativePlayer.play()
         isNativeAudioPlaying = true
+        bindNowPlaying()
         updateNowPlaying(isPlaying: true)
+        onPlaybackStarted?()
     }
 
     private func pauseNativeAudioPlayback() {
-        guard let player = nativePlayer else { return }
-        player.pause()
+        guard nativePlayer.hasItem else { return }
+        nativePlayer.pause()
         isNativeAudioPlaying = false
         updateNowPlaying(isPlaying: false)
     }
 
     private func seekNativeAudio(to time: TimeInterval) {
-        guard let player = nativePlayer else { return }
-        let target = max(0, min(time, player.duration.isFinite ? player.duration : time))
-        player.seek(time: target) { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.updateNowPlaying(isPlaying: player.isPlaying, elapsedTime: target)
-            }
-        }
+        guard nativePlayer.hasItem else { return }
+        let duration = nativePlayer.duration
+        let target = max(0, duration > 0 ? min(time, duration) : time)
+        nativePlayer.seek(to: target)
+        nativeElapsed = target
+        updateNowPlaying(isPlaying: nativePlayer.isPlaying, elapsedTime: target)
     }
 
     private func playNextTrack() {
         guard currentQueueIndex + 1 < nativeQueue.count else { return }
         playTrack(at: currentQueueIndex + 1)
-        prefetchUpcomingTracks()
     }
 
     private func playPreviousTrack() {
-        guard let player = nativePlayer else { return }
-
-        if player.currentPlaybackTime > 5 || currentQueueIndex == 0 {
+        if nativePlayer.currentTime > 5 || currentQueueIndex == 0 {
             seekNativeAudio(to: 0)
         } else {
             playTrack(at: currentQueueIndex - 1)
-            prefetchUpcomingTracks()
         }
     }
 
-    func stopNativeAudioPlayback(resumeWebPlayback: Bool = true) {
-        let playbackTime = nativePlayer?.currentPlaybackTime
-
+    /// Fecha o player nativo. A pagina continua pausada.
+    func stopNativeAudioPlayback() {
         resetNativeQueue()
-
-        guard resumeWebPlayback, let playbackTime, playbackTime.isFinite else { return }
-        resumeWebMedia(at: playbackTime)
-    }
-
-    private func shutdownNativePlayer() {
-        nativePlayer?.delegate = nil
-        nativePlayer?.shutdown()
-        nativePlayer = nil
-        isNativeAudioActive = false
-        isNativeAudioPlaying = false
     }
 
     private func resetNativeQueue() {
         queueGeneration = UUID()
         queueTask?.cancel()
+        prefetchTask?.cancel()
+        populateTask?.cancel()
         queueTask = nil
-        shutdownNativePlayer()
+        prefetchTask = nil
+        populateTask = nil
+        nativePlayer.stop()
+        isNativeAudioActive = false
+        isNativeAudioPlaying = false
+        isPictureInPictureActive = false
         nativeQueue = []
         currentQueueIndex = 0
-        nowPlayingController?.clear()
+        retriedVideoIDs = []
+        nativeElapsed = 0
+        nativeDuration = 0
+        publishCurrentTrack()
+        clearNowPlayingIfOwned()
+        endBackgroundTask()
     }
 
     private func finishNativeQueue() {
-        shutdownNativePlayer()
-        nowPlayingController?.clear()
+        nativePlayer.stop()
+        isNativeAudioActive = false
+        isNativeAudioPlaying = false
+        isPictureInPictureActive = false
+        clearNowPlayingIfOwned()
+        endBackgroundTask()
     }
 
-    private func resolveAndPlayTrack(at index: Int, startTime: TimeInterval) {
-        guard nativeQueue.indices.contains(index) else { return }
+    /// Resolve a URL pelo `videoID` (YouTubeKit) e toca. `fallbackURL` e a URL observada
+    /// na pagina, usada apenas se a resolucao falhar.
+    private func resolveAndPlayTrack(at index: Int, startTime: TimeInterval, fallbackURL: URL? = nil) {
+        guard nativeQueue.indices.contains(index) else {
+            finishNativeQueue()
+            return
+        }
+
+        nativePlayer.stop()
+        isNativeAudioPlaying = false
+        currentQueueIndex = index
         let generation = queueGeneration
         let track = nativeQueue[index]
-        pipMessage = "Preparando \(track.title.isEmpty ? "a proxima faixa" : track.title)..."
+        pipMessage = "Preparando \(track.title.isEmpty ? "o player" : track.title)..."
+        publishCurrentTrack()
+        updateNowPlaying(isPlaying: false, elapsedTime: startTime)
+        // Sem audio tocando, o iOS pode suspender o app antes de a faixa ficar pronta.
+        beginBackgroundTaskIfNeeded()
 
-        queueTask = Task { [weak self] in
-            guard let self else { return }
+        queueTask?.cancel()
+        queueTask = Task { [weak self, audioResolver] in
+            let result: Result<NativeAudioTrack, Error>
             do {
-                let resolved = try await audioResolver.resolve(track)
-                await MainActor.run {
-                    guard self.queueGeneration == generation, self.nativeQueue.indices.contains(index) else { return }
-                    self.nativeQueue[index] = resolved
-                    self.playTrack(at: index, startTime: startTime)
-                    self.prefetchUpcomingTracks()
-                }
+                result = .success(try await audioResolver.resolve(track))
             } catch {
-                await MainActor.run {
-                    guard self.queueGeneration == generation else { return }
+                result = .failure(error)
+            }
+
+            guard
+                let self,
+                !Task.isCancelled,
+                self.queueGeneration == generation,
+                self.nativeQueue.indices.contains(index)
+            else { return }
+
+            switch result {
+            case .success(let resolved):
+                self.nativeQueue[index] = resolved
+                self.playTrack(at: index, startTime: startTime)
+            case .failure(let error):
+                if let fallbackURL {
+                    var fallbackTrack = track
+                    fallbackTrack.streamURL = fallbackURL
+                    self.nativeQueue[index] = fallbackTrack
+                    self.playTrack(at: index, startTime: startTime)
+                    return
+                }
+
+                if index + 1 < self.nativeQueue.count {
                     self.pipMessage = "Nao foi possivel preparar a faixa: \(error.localizedDescription)"
-                    if index + 1 < self.nativeQueue.count {
-                        self.playTrack(at: index + 1)
-                    } else {
-                        self.finishNativeQueue()
-                    }
+                    self.playTrack(at: index + 1)
+                } else {
+                    self.resumeWebMediaAfterNativeFailure(videoID: track.videoID)
                 }
             }
         }
     }
 
     private func populateQueueIfNeeded(_ playlistID: String?) {
-        guard nativeQueue.count <= 1 else { return }
+        guard nativeQueue.count <= 1, nativeQueue.indices.contains(currentQueueIndex) else { return }
         let generation = queueGeneration
         let currentTrack = nativeQueue[currentQueueIndex]
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let playlistTracks = try await audioResolver.queueTracks(
-                    currentTrack: currentTrack,
-                    playlistID: playlistID
-                )
-                await MainActor.run {
-                    guard self.queueGeneration == generation else { return }
-                    self.mergePlaylistTracks(playlistTracks, currentTrack: currentTrack)
-                    self.prefetchUpcomingTracks()
-                }
-            } catch {
-                // The DOM queue remains usable when a private or generated playlist cannot be fetched.
-            }
+        populateTask?.cancel()
+        populateTask = Task { [weak self, audioResolver] in
+            // Se a playlist for privada ou gerada, a fila do DOM continua valendo.
+            guard let playlistTracks = try? await audioResolver.queueTracks(
+                currentTrack: currentTrack,
+                playlistID: playlistID
+            ) else { return }
+
+            guard let self, !Task.isCancelled, self.queueGeneration == generation else { return }
+            self.mergePlaylistTracks(playlistTracks, currentVideoID: currentTrack.videoID)
+            self.prefetchUpcomingTracks()
         }
     }
 
-    private func mergePlaylistTracks(_ playlistTracks: [NativeAudioTrack], currentTrack: NativeAudioTrack) {
-        guard !playlistTracks.isEmpty else { return }
+    private func mergePlaylistTracks(_ playlistTracks: [NativeAudioTrack], currentVideoID: String) {
+        guard !playlistTracks.isEmpty, nativeQueue.indices.contains(currentQueueIndex) else { return }
+        // Usa a versao mais recente da faixa atual (pode ja ter sido resolvida).
+        let currentTrack = nativeQueue[currentQueueIndex]
+        guard currentTrack.videoID == currentVideoID else { return }
 
         var merged = playlistTracks
         if let index = merged.firstIndex(where: { $0.videoID == currentTrack.videoID }) {
@@ -410,53 +562,138 @@ final class BrowserViewModel: ObservableObject {
             nativeQueue = [currentTrack] + merged.filter { $0.videoID != currentTrack.videoID }
             currentQueueIndex = 0
         }
-        updateNowPlaying(isPlaying: nativePlayer?.isPlaying == true)
+        publishCurrentTrack()
+        updateNowPlaying(isPlaying: nativePlayer.isPlaying)
     }
 
     private func prefetchUpcomingTracks() {
         guard !nativeQueue.isEmpty else { return }
         let generation = queueGeneration
-        let upperBound = min(nativeQueue.count, currentQueueIndex + 6)
-        let indexes = ((currentQueueIndex + 1)..<upperBound).filter {
-            nativeQueue[$0].streamURL == nil
-        }
-        guard !indexes.isEmpty else {
-            updateNowPlaying(isPlaying: nativePlayer?.isPlaying == true)
-            return
-        }
+        let lowerBound: Int = min(currentQueueIndex + 1, nativeQueue.count)
+        let upperBound: Int = min(nativeQueue.count, currentQueueIndex + 6)
+        let upcoming: ArraySlice<NativeAudioTrack> = nativeQueue[lowerBound..<max(upperBound, lowerBound)]
+        let tracks: [NativeAudioTrack] = upcoming.filter { $0.streamURL == nil }
+        guard !tracks.isEmpty else { return }
 
-        Task { [weak self] in
-            guard let self else { return }
-            for index in indexes {
-                if Task.isCancelled { return }
-                let track = await MainActor.run { () -> NativeAudioTrack? in
-                    guard self.queueGeneration == generation, self.nativeQueue.indices.contains(index) else {
-                        return nil
-                    }
-                    return self.nativeQueue[index]
-                }
-                guard let track else { return }
-                do {
-                    let resolved = try await audioResolver.resolve(track)
-                    await MainActor.run {
-                        guard self.queueGeneration == generation, self.nativeQueue.indices.contains(index) else { return }
-                        self.nativeQueue[index] = resolved
-                        self.updateNowPlaying(isPlaying: self.nativePlayer?.isPlaying == true)
-                    }
-                } catch {
-                    continue
+        prefetchTask?.cancel()
+        prefetchTask = Task { [weak self, audioResolver] in
+            for track in tracks {
+                guard !Task.isCancelled else { return }
+                guard let resolved = try? await audioResolver.resolve(track) else { continue }
+                guard let self, !Task.isCancelled, self.queueGeneration == generation else { return }
+                // A fila pode ter sido reordenada pela playlist; localiza a faixa pelo ID.
+                if let index = self.nativeQueue.firstIndex(where: { $0.videoID == track.videoID }),
+                   self.nativeQueue[index].streamURL == nil {
+                    self.nativeQueue[index] = resolved
                 }
             }
         }
     }
 
+    private func publishCurrentTrack() {
+        let track = nativeQueue.indices.contains(currentQueueIndex) ? nativeQueue[currentQueueIndex] : nil
+        nowPlayingTitle = track?.title ?? ""
+        nowPlayingArtist = track?.artist ?? ""
+        canSkipToNext = currentQueueIndex + 1 < nativeQueue.count
+    }
+
+    // MARK: - Eventos do player nativo
+
+    private func handleNativePlayerEvent(_ event: NativePlayer.Event) {
+        switch event {
+        case .ready:
+            pauseWebMedia()
+            isNativeAudioActive = true
+            isNativeAudioPlaying = true
+            pipMessage = nil
+            nativeDuration = nativePlayer.duration
+            bindNowPlaying()
+            updateNowPlaying(isPlaying: true)
+            onPlaybackStarted?()
+            // O audio ja mantem o app vivo em segundo plano.
+            endBackgroundTask()
+            prefetchUpcomingTracks()
+        case .playbackStateChanged:
+            guard nativePlayer.hasItem else { return }
+            isNativeAudioPlaying = nativePlayer.isPlaying
+            nowPlayingController.updatePlayback(
+                elapsedTime: nativePlayer.currentTime,
+                duration: nativePlayer.duration,
+                isPlaying: nativePlayer.isPlaying
+            )
+        case .timeChanged:
+            guard nativePlayer.hasItem else { return }
+            nativeElapsed = nativePlayer.currentTime
+            let duration = nativePlayer.duration
+            if duration > 0, duration != nativeDuration {
+                nativeDuration = duration
+            }
+        case .finished:
+            if currentQueueIndex + 1 < nativeQueue.count {
+                playNextTrack()
+            } else {
+                isNativeAudioPlaying = false
+                updateNowPlaying(isPlaying: false)
+            }
+        case .failed(let error):
+            handleNativePlaybackFailure(error)
+        case .pictureInPictureChanged:
+            isPictureInPictureActive = nativePlayer.isPictureInPictureActive
+        }
+    }
+
+    private func handleNativePlaybackFailure(_ error: Error?) {
+        let failedIndex = currentQueueIndex
+        let elapsed = nativePlayer.currentTime
+        guard nativeQueue.indices.contains(failedIndex) else { return }
+
+        // URLs do googlevideo expiram: tenta resolver de novo uma vez antes de desistir.
+        let videoID = nativeQueue[failedIndex].videoID
+        if retriedVideoIDs.insert(videoID).inserted {
+            nativeQueue[failedIndex].streamURL = nil
+            resolveAndPlayTrack(at: failedIndex, startTime: elapsed)
+            return
+        }
+
+        if failedIndex + 1 < nativeQueue.count {
+            pipMessage = "A faixa atual falhou; tocando a proxima."
+            playNextTrack()
+        } else {
+            resumeWebMediaAfterNativeFailure(videoID: videoID)
+            if let error {
+                pipMessage = "O player nativo nao conseguiu tocar: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    // MARK: - Tela bloqueada
+
+    /// A tela bloqueada e compartilhada pelas abas; quem toca assume os comandos.
+    private func bindNowPlaying() {
+        nowPlayingController.owner = ObjectIdentifier(self)
+        nowPlayingController.onPlay = { [weak self] in self?.resumeNativeAudioPlayback() }
+        nowPlayingController.onPause = { [weak self] in self?.pauseNativeAudioPlayback() }
+        nowPlayingController.onNext = { [weak self] in self?.playNextTrack() }
+        nowPlayingController.onPrevious = { [weak self] in self?.playPreviousTrack() }
+        nowPlayingController.onSeek = { [weak self] time in self?.seekNativeAudio(to: time) }
+    }
+
+    private func clearNowPlayingIfOwned() {
+        guard nowPlayingController.owner == ObjectIdentifier(self) else { return }
+        nowPlayingController.owner = nil
+        nowPlayingController.clear()
+    }
+
     private func updateNowPlaying(isPlaying: Bool, elapsedTime: TimeInterval? = nil) {
         guard nativeQueue.indices.contains(currentQueueIndex) else { return }
+        guard nowPlayingController.owner == nil || nowPlayingController.owner == ObjectIdentifier(self) else { return }
         let track = nativeQueue[currentQueueIndex]
-        let elapsed = elapsedTime ?? nativePlayer?.currentPlaybackTime ?? 0
-        let duration = nativePlayer?.duration ?? track.duration ?? 0
-        nowPlayingController?.update(
+        let elapsed = elapsedTime ?? nativePlayer.currentTime
+        let playerDuration = nativePlayer.duration
+        let duration = playerDuration > 0 ? playerDuration : (track.duration ?? 0)
+        nowPlayingController.update(
             track: track,
+            fallbackTitle: serviceName,
             elapsedTime: elapsed,
             duration: duration,
             isPlaying: isPlaying,
@@ -465,44 +702,74 @@ final class BrowserViewModel: ObservableObject {
         )
     }
 
+    // MARK: - Sessao de audio e segundo plano
+
     private func activateAudioSession() {
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default)
-            try session.setActive(true)
+            try AudioSessionManager.shared.activate()
         } catch {
             pipMessage = "Nao foi possivel ativar o audio em segundo plano: \(error.localizedDescription)"
         }
     }
 
-    private func fallbackToWebBackgroundPlayback() {
-        prepareAudioOnlyMode()
-        webView?.evaluateJavaScript(Self.prepareForBackgroundPlaybackScript)
+    private func handleAudioSessionEvent(_ event: AudioSessionManager.Event) {
+        guard nativePlayer.hasItem else { return }
+
+        switch event {
+        case .interruptionBegan:
+            wasPlayingBeforeInterruption = isNativeAudioPlaying
+            pauseNativeAudioPlayback()
+        case .interruptionEnded(let shouldResume):
+            if shouldResume && wasPlayingBeforeInterruption {
+                resumeNativeAudioPlayback()
+            }
+            wasPlayingBeforeInterruption = false
+        case .outputDeviceUnavailable:
+            // Fone desconectado: pausa, como os apps de musica do sistema.
+            pauseNativeAudioPlayback()
+        }
     }
+
+    private func beginBackgroundTaskIfNeeded() {
+        guard backgroundTask == .invalid else { return }
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "NativePlayerPreparation") { [weak self] in
+            MainActor.assumeIsolated {
+                self?.endBackgroundTask()
+            }
+        }
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
+    }
+
+    // MARK: - Midia da pagina
 
     private func pauseWebMedia() {
         webView?.evaluateJavaScript(Self.pauseWebMediaScript)
     }
 
-    private func resumeWebMedia(at seconds: Double) {
-        let script = """
-        (() => {
-            const media = Array.from(document.querySelectorAll('audio, video'))
-                .find((item) => item.readyState > 0);
-            if (!media) return 'missing';
-            media.currentTime = \(seconds);
-            media.play().catch(() => {});
-            return 'playing';
-        })();
-        """
-        webView?.evaluateJavaScript(script)
+    /// O player nativo nao conseguiu tocar: devolve a reproducao para a pagina.
+    private func resumeWebMediaAfterNativeFailure(videoID: String?) {
+        let videoID = videoID ?? currentNativeVideoID
+        resetNativeQueue()
+        if let videoID {
+            webOnlyVideoIDs.insert(videoID)
+        }
+        pipMessage = "Nao foi possivel abrir no player nativo; tocando na pagina (sem segundo plano)."
+        webView?.evaluateJavaScript(Self.resumeWebMediaScript)
     }
+
+    // MARK: - Parsing do diagnostico
 
     private static func nativeAudioCapture(from object: Any) -> NativeAudioCapture? {
         guard let report = object as? [String: Any] else { return nil }
 
         let activeElement = report["activeElement"] as? [String: Any]
-        let currentTime = activeElement?["currentTime"] as? Double ?? 0
+        let metadataTime = (report["metadata"] as? [String: Any])?["currentTime"] as? Double
+        let currentTime = metadataTime ?? activeElement?["currentTime"] as? Double ?? 0
         let duration = activeElement?["duration"] as? Double
         let resourceURLs = report["resourceURLs"] as? [String] ?? []
         let metadata = report["metadata"] as? [String: Any] ?? [:]
@@ -515,6 +782,25 @@ final class BrowserViewModel: ObservableObject {
 
         guard let currentVideoID else { return nil }
 
+        let currentTrack = NativeAudioTrack(
+            videoID: currentVideoID,
+            streamURL: nil,
+            title: (metadata["title"] as? String).nonEmpty ?? "YouTube Music",
+            artist: (metadata["artist"] as? String).nonEmpty ?? "",
+            artworkURL: (metadata["artworkURL"] as? String).flatMap(URL.init(string:)),
+            duration: duration
+        )
+
+        return NativeAudioCapture(
+            currentTrack: currentTrack,
+            fallbackStreamURL: latestAudioStreamURL(in: resourceURLs),
+            currentTime: currentTime,
+            playlistID: playlistID,
+            queue: nativeQueue(from: report["queueItems"])
+        )
+    }
+
+    private static func latestAudioStreamURL(in resourceURLs: [String]) -> URL? {
         for value in resourceURLs.reversed() {
             guard
                 var components = URLComponents(string: value),
@@ -530,26 +816,10 @@ final class BrowserViewModel: ObservableObject {
 
             let requestOnlyParameters: Set<String> = ["range", "rn", "rbuf", "alr", "ump", "srfvp"]
             components.queryItems = queryItems.filter { !requestOnlyParameters.contains($0.name) }
-
             if let url = components.url {
-                let currentTrack = NativeAudioTrack(
-                    videoID: currentVideoID,
-                    streamURL: url,
-                    title: (metadata["title"] as? String).nonEmpty ?? "YouTube Music",
-                    artist: (metadata["artist"] as? String).nonEmpty ?? "",
-                    artworkURL: (metadata["artworkURL"] as? String).flatMap(URL.init(string:)),
-                    duration: duration
-                )
-                let queue = nativeQueue(from: report["queueItems"])
-                return NativeAudioCapture(
-                    currentTrack: currentTrack,
-                    currentTime: currentTime,
-                    playlistID: playlistID,
-                    queue: queue
-                )
+                return url
             }
         }
-
         return nil
     }
 
@@ -569,33 +839,61 @@ final class BrowserViewModel: ObservableObject {
         }
     }
 
-    private static let mobileUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+    // MARK: - Scripts
 
-    private func runPictureInPictureScript(shouldShowResult: Bool) {
-        guard let webView else {
-            if shouldShowResult {
-                pipMessage = "A pagina ainda nao esta pronta para iniciar o PiP."
+    static let mediaEventsHandlerName = "ytpipMedia"
+
+    /// Envia para o app eventos de play/pause e de entrada/saida do PiP.
+    /// Os eventos de midia nao propagam (bubble), por isso sao escutados na fase de captura.
+    static let mediaEventsScript = """
+    (() => {
+        if (window.__ytpipMediaEvents) return;
+        window.__ytpipMediaEvents = true;
+
+        // O buffer padrao (~250 entradas) enche rapido e congela a lista de recursos.
+        try { performance.setResourceTimingBufferSize(2000); } catch (error) {}
+
+        const post = (payload) => {
+            try { window.webkit.messageHandlers.\(mediaEventsHandlerName).postMessage(payload); } catch (error) {}
+        };
+        const urlVideoID = () => {
+            try {
+                const url = new URL(window.location.href);
+                const parts = url.pathname.split('/');
+                return url.searchParams.get('v') || (parts[1] === 'shorts' ? (parts[2] || '') : '');
+            } catch (error) { return ''; }
+        };
+        // O player da pagina sabe o que esta realmente tocando; a URL pode estar atrasada.
+        const playerVideoID = () => {
+            try {
+                const player = document.getElementById('movie_player');
+                const data = player && player.getVideoData && player.getVideoData();
+                return (data && data.video_id) || '';
+            } catch (error) { return ''; }
+        };
+        // No YouTube Music a URL atualiza com atraso; no YouTube o player reporta o anuncio.
+        const isMusic = window.location.hostname.startsWith('music.');
+        const videoID = () => isMusic
+            ? (playerVideoID() || urlVideoID())
+            : (urlVideoID() || playerVideoID());
+        const isMedia = (target) => target instanceof HTMLMediaElement;
+
+        document.addEventListener('playing', (event) => {
+            if (isMedia(event.target)) post({ type: 'playing', videoID: videoID() });
+        }, true);
+        ['pause', 'ended'].forEach((name) => document.addEventListener(name, (event) => {
+            if (isMedia(event.target)) post({ type: 'paused', videoID: videoID() });
+        }, true));
+        document.addEventListener('enterpictureinpicture', () => post({ type: 'pip', active: true }), true);
+        document.addEventListener('leavepictureinpicture', () => post({ type: 'pip', active: false }), true);
+        document.addEventListener('webkitpresentationmodechanged', (event) => {
+            const target = event.target;
+            if (target instanceof HTMLVideoElement) {
+                post({ type: 'pip', active: target.webkitPresentationMode === 'picture-in-picture' });
             }
-            return
-        }
-
-        pipMessage = shouldShowResult ? "Tentando iniciar Picture in Picture..." : nil
-        webView.evaluateJavaScript(Self.startPictureInPictureScript) { [weak self] result, error in
-            DispatchQueue.main.async {
-                guard let self, shouldShowResult else { return }
-
-                if let error {
-                    self.pictureInPictureRequested = false
-                    self.pipMessage = "Nao foi possivel iniciar o PiP: \(error.localizedDescription)"
-                    return
-                }
-
-                let message = (result as? String) ?? "Solicitacao de PiP enviada ao player."
-                self.pictureInPictureRequested = message.contains("solicitado") || message.contains("ja esta ativo")
-                self.pipMessage = message
-            }
-        }
-    }
+        }, true);
+    })();
+    """
 
     static let prepareVideoElementsScript = """
     (() => {
@@ -604,7 +902,6 @@ final class BrowserViewModel: ObservableObject {
                 video.setAttribute('playsinline', '');
                 video.setAttribute('webkit-playsinline', '');
                 video.disablePictureInPicture = false;
-                video.controls = true;
             });
         };
 
@@ -681,15 +978,34 @@ final class BrowserViewModel: ObservableObject {
         };
 
         const page = new URL(window.location.href);
+        const isMusic = page.hostname.startsWith('music.');
         const playerBar = document.querySelector('ytmusic-player-bar');
-        const currentVideoID = page.searchParams.get('v') || '';
+        const shortsMatch = page.pathname.match(/^\/shorts\/([\w-]{6,})/);
+        const urlVideoID = page.searchParams.get('v') || (shortsMatch ? shortsMatch[1] : '');
+
+        // Estado real do player da pagina (a URL e a barra podem estar atrasadas no YouTube Music).
+        const player = document.getElementById('movie_player');
+        const call = (name) => {
+            try { return player && typeof player[name] === 'function' ? player[name]() : null; } catch (error) { return null; }
+        };
+        const playerData = call('getVideoData') || {};
+        const playerVideoID = playerData.video_id || '';
+        const playerTime = call('getCurrentTime');
+        const currentVideoID = isMusic ? (playerVideoID || urlVideoID) : (urlVideoID || playerVideoID);
+        const useplayerData = playerVideoID && playerVideoID === currentVideoID;
+
         const metadata = {
             videoID: currentVideoID,
-            playlistID: page.searchParams.get('list') || '',
-            title: textFrom(playerBar, ['.title', '.song-title', 'yt-formatted-string.title'])
-                || cleanText(document.title.replace(/\s*-\s*YouTube Music\s*$/, '')),
-            artist: textFrom(playerBar, ['.byline', '.subtitle', '.secondary-flex-columns']),
-            artworkURL: imageFrom(playerBar)
+            playlistID: (isMusic && call('getPlaylistId')) || page.searchParams.get('list') || '',
+            title: (useplayerData && cleanText(playerData.title))
+                || textFrom(playerBar, ['.title', '.song-title', 'yt-formatted-string.title'])
+                || cleanText(document.title.replace(/\s*-\s*YouTube( Music)?\s*$/, '')),
+            artist: (useplayerData && cleanText(playerData.author))
+                || textFrom(playerBar, ['.byline', '.subtitle', '.secondary-flex-columns']),
+            artworkURL: useplayerData
+                ? `https://i.ytimg.com/vi/${currentVideoID}/hqdefault.jpg`
+                : imageFrom(playerBar),
+            currentTime: (useplayerData && Number.isFinite(playerTime)) ? playerTime : null
         };
 
         const queueRoot = document.querySelector('ytmusic-player-queue')
@@ -746,22 +1062,13 @@ final class BrowserViewModel: ObservableObject {
     })();
     """#
 
-    private static let prepareForBackgroundPlaybackScript = """
+    private static let resumeWebMediaScript = """
     (() => {
         const media = Array.from(document.querySelectorAll('audio, video'))
-            .filter((item) => item.readyState > 0)
-            .sort((left, right) => Number(left.paused) - Number(right.paused))[0];
-
-        if (!media) {
-            return 'Nenhuma midia pronta para continuar em segundo plano.';
-        }
-
-        media.setAttribute('playsinline', '');
-        if (media.paused) {
-            media.play().catch(() => {});
-        }
-
-        return 'Reproducao preparada para segundo plano.';
+            .find((item) => item.readyState > 0);
+        if (!media) return 'missing';
+        media.play().catch(() => {});
+        return 'playing';
     })();
     """
 
@@ -773,117 +1080,6 @@ final class BrowserViewModel: ObservableObject {
     })();
     """
 
-    private static let exitPictureInPictureScript = """
-    (() => {
-        try {
-            if (document.pictureInPictureElement && typeof document.exitPictureInPicture === 'function') {
-                const request = document.exitPictureInPicture();
-                if (request && typeof request.catch === 'function') {
-                    request.catch(() => {});
-                }
-            }
-
-            document.querySelectorAll('video').forEach((video) => {
-                if (video.webkitPresentationMode === 'picture-in-picture' && typeof video.webkitSetPresentationMode === 'function') {
-                    video.webkitSetPresentationMode('inline');
-                }
-            });
-        } catch (error) {}
-
-        return 'Picture in Picture ocultado para o YouTube Music.';
-    })();
-    """
-
-    private static let startPictureInPictureScript = """
-    (() => {
-        const videos = Array.from(document.querySelectorAll('video'));
-        const video = videos.find((item) => !item.paused && item.readyState > 0) || videos.find((item) => item.readyState > 0) || videos[0];
-
-        if (!video) {
-            return 'Nenhum video foi encontrado na pagina. Abra e toque em um video antes de iniciar o PiP.';
-        }
-
-        video.style.opacity = '';
-        video.style.pointerEvents = '';
-        video.style.position = '';
-        video.style.width = '';
-        video.style.height = '';
-        video.style.left = '';
-        video.style.top = '';
-        video.setAttribute('playsinline', '');
-        video.setAttribute('webkit-playsinline', '');
-        video.disablePictureInPicture = false;
-        video.controls = true;
-
-        try {
-            if (document.pictureInPictureElement) {
-                return 'O Picture in Picture ja esta ativo.';
-            }
-
-            if (video.webkitSupportsPresentationMode && typeof video.webkitSetPresentationMode === 'function') {
-                video.webkitSetPresentationMode('picture-in-picture');
-                return 'Picture in Picture solicitado ao player.';
-            }
-
-            if (document.pictureInPictureEnabled && typeof video.requestPictureInPicture === 'function') {
-                const request = video.requestPictureInPicture();
-                if (request && typeof request.catch === 'function') {
-                    request.catch(() => {});
-                }
-                return 'Picture in Picture solicitado ao player.';
-            }
-
-            return 'Este player do YouTube nao liberou Picture in Picture nesta WebView.';
-        } catch (error) {
-            return 'O YouTube ou o iOS recusou o Picture in Picture para este video.';
-        }
-    })();
-    """
-}
-
-extension BrowserViewModel: MediaPlayerDelegate {
-    func readyToPlay(player: some MediaPlayerProtocol) {
-        guard let nativePlayer, (player as AnyObject) === nativePlayer else { return }
-
-        pauseWebMedia()
-        player.play()
-        isNativeAudioActive = true
-        isNativeAudioPlaying = true
-        pipMessage = nil
-        updateNowPlaying(isPlaying: true)
-        prefetchUpcomingTracks()
-    }
-
-    func changeLoadState(player: some MediaPlayerProtocol) {
-        guard let nativePlayer, (player as AnyObject) === nativePlayer else { return }
-        isNativeAudioPlaying = player.isPlaying
-        nowPlayingController?.updatePlayback(
-            elapsedTime: player.currentPlaybackTime,
-            duration: player.duration,
-            isPlaying: player.isPlaying
-        )
-    }
-
-    func changeBuffering(player: some MediaPlayerProtocol, progress: Int) {}
-
-    func playBack(player: some MediaPlayerProtocol, loopCount: Int) {}
-
-    func finish(player: some MediaPlayerProtocol, error: Error?) {
-        guard let nativePlayer, (player as AnyObject) === nativePlayer else { return }
-
-        shutdownNativePlayer()
-        if currentQueueIndex + 1 < nativeQueue.count {
-            if let error {
-                pipMessage = "A faixa atual falhou; tentando a proxima: \(error.localizedDescription)"
-            }
-            playNextTrack()
-        } else {
-            nowPlayingController?.clear()
-            if let error {
-                pipMessage = "Nao foi possivel tocar no KSPlayer: \(error.localizedDescription)."
-            }
-        }
-    }
 }
 
 private extension Optional where Wrapped == String {

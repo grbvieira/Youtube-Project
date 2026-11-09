@@ -1,7 +1,10 @@
 import MediaPlayer
 import UIKit
 
+@MainActor
 final class NowPlayingController {
+    /// Aba que controla a tela bloqueada no momento (so uma toca por vez).
+    var owner: ObjectIdentifier?
     var onPlay: (() -> Void)?
     var onPause: (() -> Void)?
     var onNext: (() -> Void)?
@@ -11,17 +14,15 @@ final class NowPlayingController {
     private var commandTargets: [(command: MPRemoteCommand, target: Any)] = []
     private var isActive = false
     private var representedArtworkURL: URL?
+    private var artworkTask: Task<Void, Never>?
 
     init() {
         registerCommands()
     }
 
-    deinit {
-        commandTargets.forEach { $0.command.removeTarget($0.target) }
-    }
-
     func update(
         track: NativeAudioTrack,
+        fallbackTitle: String,
         elapsedTime: TimeInterval,
         duration: TimeInterval,
         isPlaying: Bool,
@@ -30,7 +31,7 @@ final class NowPlayingController {
     ) {
         isActive = true
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-        info[MPMediaItemPropertyTitle] = track.title.isEmpty ? "YouTube Music" : track.title
+        info[MPMediaItemPropertyTitle] = track.title.isEmpty ? fallbackTitle : track.title
         info[MPMediaItemPropertyArtist] = track.artist
         info[MPMediaItemPropertyPlaybackDuration] = validTime(duration)
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = validTime(elapsedTime)
@@ -62,6 +63,8 @@ final class NowPlayingController {
     func clear() {
         isActive = false
         representedArtworkURL = nil
+        artworkTask?.cancel()
+        artworkTask = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
     }
@@ -69,78 +72,83 @@ final class NowPlayingController {
     private func registerCommands() {
         let commands = MPRemoteCommandCenter.shared()
 
-        addTarget(to: commands.playCommand) { [weak self] _ in
-            guard let self else { return .commandFailed }
-            return self.perform(self.onPlay)
+        addTarget(to: commands.playCommand) { $0.perform($0.onPlay) }
+        addTarget(to: commands.pauseCommand) { $0.perform($0.onPause) }
+        addTarget(to: commands.togglePlayPauseCommand) { controller in
+            controller.perform(
+                MPNowPlayingInfoCenter.default().playbackState == .playing ? controller.onPause : controller.onPlay
+            )
         }
-        addTarget(to: commands.pauseCommand) { [weak self] _ in
-            guard let self else { return .commandFailed }
-            return self.perform(self.onPause)
-        }
-        addTarget(to: commands.togglePlayPauseCommand) { [weak self] _ in
-            guard let self else { return .commandFailed }
-            return self.perform(MPNowPlayingInfoCenter.default().playbackState == .playing ? self.onPause : self.onPlay)
-        }
-        addTarget(to: commands.nextTrackCommand) { [weak self] _ in
-            guard let self else { return .commandFailed }
-            return self.perform(self.onNext)
-        }
-        addTarget(to: commands.previousTrackCommand) { [weak self] _ in
-            guard let self else { return .commandFailed }
-            return self.perform(self.onPrevious)
-        }
-        addTarget(to: commands.changePlaybackPositionCommand) { [weak self] event in
-            guard
-                let self,
-                self.isActive,
-                let event = event as? MPChangePlaybackPositionCommandEvent
-            else {
+        addTarget(to: commands.nextTrackCommand) { $0.perform($0.onNext) }
+        addTarget(to: commands.previousTrackCommand) { $0.perform($0.onPrevious) }
+
+        let positionTarget = commands.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let position = (event as? MPChangePlaybackPositionCommandEvent)?.positionTime else {
                 return .commandFailed
             }
-            DispatchQueue.main.async { self.onSeek?(event.positionTime) }
-            return .success
+            return Self.onMain {
+                guard let self, self.isActive, let onSeek = self.onSeek else { return .commandFailed }
+                onSeek(position)
+                return .success
+            }
         }
+        commandTargets.append((commands.changePlaybackPositionCommand, positionTarget))
     }
 
     private func addTarget(
         to command: MPRemoteCommand,
-        handler: @escaping (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus
+        handler: @escaping @MainActor (NowPlayingController) -> MPRemoteCommandHandlerStatus
     ) {
-        let target = command.addTarget(handler: handler)
+        let target = command.addTarget { [weak self] _ in
+            Self.onMain {
+                guard let self else { return .commandFailed }
+                return handler(self)
+            }
+        }
         commandTargets.append((command, target))
     }
 
     private func perform(_ action: (() -> Void)?) -> MPRemoteCommandHandlerStatus {
         guard isActive, let action else { return .commandFailed }
-        DispatchQueue.main.async(execute: action)
+        action()
         return .success
+    }
+
+    /// Os comandos remotos chegam na main thread; o fallback evita um crash caso isso mude.
+    private nonisolated static func onMain(
+        _ body: @MainActor () -> MPRemoteCommandHandlerStatus
+    ) -> MPRemoteCommandHandlerStatus {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated(body)
+        }
+        return withoutActuallyEscaping(body) { body in
+            nonisolated(unsafe) let body = body
+            return DispatchQueue.main.sync { MainActor.assumeIsolated(body) }
+        }
     }
 
     private func loadArtwork(from url: URL?) {
         guard representedArtworkURL != url else { return }
         representedArtworkURL = url
+        artworkTask?.cancel()
+        removeArtwork()
 
-        guard let url else {
-            removeArtwork()
-            return
-        }
+        guard let url else { return }
 
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+        artworkTask = Task { [weak self] in
             guard
+                let (data, _) = try? await URLSession.shared.data(from: url),
+                let image = UIImage(data: data),
                 let self,
-                self.representedArtworkURL == url,
-                let data,
-                let image = UIImage(data: data)
+                !Task.isCancelled,
+                self.representedArtworkURL == url
             else { return }
 
             let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-            DispatchQueue.main.async {
-                guard self.representedArtworkURL == url else { return }
-                var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-                info[MPMediaItemPropertyArtwork] = artwork
-                MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-            }
-        }.resume()
+            var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+            info[MPMediaItemPropertyArtwork] = artwork
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        }
     }
 
     private func removeArtwork() {
