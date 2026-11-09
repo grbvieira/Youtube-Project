@@ -13,6 +13,8 @@ final class BrowserViewModel: ObservableObject {
 
     /// Chamado quando esta aba comeca a tocar (pagina ou nativo), para pausar a outra aba.
     var onPlaybackStarted: (() -> Void)?
+    /// Chamado ao terminar cada navegacao (o login pode ter mudado).
+    var onNavigationFinished: (() -> Void)?
 
     @Published private(set) var canGoBack = false
     @Published private(set) var canGoForward = false
@@ -105,6 +107,11 @@ final class BrowserViewModel: ObservableObject {
     }
 
     /// Abre o link do YouTube que estiver na area de transferencia.
+    /// Abre a pagina de login do Google na WebView desta aba.
+    func signIn() {
+        load(AccountSession.signInURL)
+    }
+
     func openCopiedLink() {
         guard let text = UIPasteboard.general.string, let link = YouTubeLink.firstLink(in: text) else {
             statusMessage = String(localized: "Nenhum link do YouTube foi copiado.")
@@ -145,6 +152,7 @@ final class BrowserViewModel: ObservableObject {
         isLoading = false
         bridge.applyPageAdjustments()
         updateNavigationState(webView)
+        onNavigationFinished?()
     }
 
     func navigationFailed(in webView: WKWebView, error: Error) {

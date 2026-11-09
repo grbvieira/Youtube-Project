@@ -94,6 +94,10 @@ final class PlaybackController: ObservableObject {
     }
 
     var currentVideoID: String? { queue.current?.videoID }
+    /// Video atual a partir do estado publicado (para as telas reagirem a troca de faixa).
+    var currentTrackID: String? {
+        queueTracks.indices.contains(currentIndex) ? queueTracks[currentIndex].videoID : nil
+    }
     var showsVideo: Bool { !isAudioOnly && isActive }
     private var isMusic: Bool { service.audioOnly }
     private var serviceName: String { service.displayName }

@@ -88,6 +88,8 @@ struct NowPlayingSheet: View {
             .buttonStyle(.plain)
 
             HStack(spacing: 28) {
+                AccountActionsView(videoID: playback.currentTrackID)
+                    .font(.title3)
                 PlayerOptionsMenu(playback: playback)
                     .font(.title3)
                 RoutePickerButton()

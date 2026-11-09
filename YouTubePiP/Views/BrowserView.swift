@@ -12,6 +12,8 @@ struct BrowserView: View {
     @State private var showsNowPlaying = false
     @State private var showsHistory = false
     @State private var showsSearch = false
+    @State private var showsLibrary = false
+    @EnvironmentObject private var account: AccountSession
 
     private static let messageDuration: UInt64 = 4_000_000_000
 
@@ -58,6 +60,14 @@ struct BrowserView: View {
         }
         .sheet(isPresented: $showsHistory) {
             HistorySheet()
+        }
+        .sheet(isPresented: $showsLibrary) {
+            LibraryView(
+                onPlayVideo: viewModel.play,
+                onPlayTracks: viewModel.play,
+                onOpenChannel: viewModel.openChannel,
+                onSignIn: viewModel.signIn
+            )
         }
         .sheet(isPresented: $showsSearch) {
             SearchView(
@@ -144,14 +154,6 @@ struct BrowserView: View {
 
             Spacer()
 
-            Button(action: viewModel.goForward) {
-                Image(systemName: "chevron.forward")
-            }
-            .disabled(!viewModel.canGoForward)
-            .accessibilityLabel("Avançar")
-
-            Spacer()
-
             Button(action: viewModel.loadHome) {
                 Image(systemName: "house")
             }
@@ -165,6 +167,15 @@ struct BrowserView: View {
                 Image(systemName: "magnifyingglass")
             }
             .accessibilityLabel("Buscar")
+
+            Spacer()
+
+            Button {
+                showsLibrary = true
+            } label: {
+                libraryIcon
+            }
+            .accessibilityLabel("Biblioteca")
 
             if viewModel.supportsPictureInPicture {
                 Spacer()
@@ -184,8 +195,29 @@ struct BrowserView: View {
         .frame(height: 48)
     }
 
+    /// Foto da conta quando logado; icone generico quando nao.
+    @ViewBuilder
+    private var libraryIcon: some View {
+        if let avatar = account.profile?.avatarURL {
+            AsyncImage(url: avatar) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                Image(systemName: "person.crop.circle.fill")
+            }
+            .frame(width: 26, height: 26)
+            .clipShape(Circle())
+        } else {
+            Image(systemName: "person.crop.circle")
+        }
+    }
+
     private var moreMenu: some View {
         Menu {
+            Button(action: viewModel.goForward) {
+                Label("Avançar", systemImage: "chevron.forward")
+            }
+            .disabled(!viewModel.canGoForward)
+
             Button(action: viewModel.reload) {
                 Label("Recarregar", systemImage: "arrow.clockwise")
             }

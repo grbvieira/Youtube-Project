@@ -10,6 +10,7 @@ final class AppModel: ObservableObject {
 
     let settings = AppSettings()
     let history = HistoryStore()
+    let account = AccountSession()
     let youtube: BrowserViewModel
     let youtubeMusic: BrowserViewModel
 
@@ -26,6 +27,9 @@ final class AppModel: ObservableObject {
             browser.onPlaybackStarted = { [weak self, weak browser] in
                 guard let self, let browser else { return }
                 self.playbackStarted(in: browser)
+            }
+            browser.onNavigationFinished = { [weak self] in
+                self?.account.scheduleRefresh()
             }
         }
 
@@ -48,6 +52,7 @@ final class AppModel: ObservableObject {
             browsers.forEach { $0.didEnterBackground() }
         case .active:
             browsers.forEach { $0.willEnterForeground() }
+            account.scheduleRefresh(delay: 0)
         default:
             // .inactive tambem ocorre com a Central de Controle e notificacoes: nada a fazer.
             break

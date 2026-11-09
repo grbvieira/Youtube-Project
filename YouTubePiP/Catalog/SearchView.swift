@@ -200,7 +200,7 @@ struct VideoRow: View {
     }
 }
 
-private struct ChannelRow: View {
+struct ChannelRow: View {
     let channel: CatalogChannel
 
     var body: some View {
@@ -229,7 +229,7 @@ private struct ChannelRow: View {
     }
 }
 
-private struct PlaylistRow: View {
+struct PlaylistRow: View {
     let playlist: CatalogPlaylist
 
     var body: some View {

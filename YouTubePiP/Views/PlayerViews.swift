@@ -47,6 +47,8 @@ struct NativeVideoPanel: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+                AccountActionsView(videoID: playback.currentTrackID)
+                    .font(.headline)
                 PlayerOptionsMenu(playback: playback)
                     .font(.headline)
                 RoutePickerButton()

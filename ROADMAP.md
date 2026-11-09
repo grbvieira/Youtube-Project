@@ -64,9 +64,11 @@ Testado no Mac antes de começar: busca, sugestões, paginação e playlists fun
 - [x] Validado no iPhone.
 
 #### Etapa 5.2 — Conta (login reaproveitado)
-- [ ] Ler os cookies de login da WebView (só na memória, enviados só ao youtube.com).
-- [ ] Biblioteca nativa: suas playlists, "Gostei", inscrições e feed de inscrições.
-- [ ] Curtir e se inscrever pelo player.
+- [x] Login lido dos cookies `youtube.com` da WebView (só na memória, só enviados ao YouTube); regra com testes no `YouTubePiPCore`.
+- [x] Botão "Biblioteca" (com a foto da conta) e "Entrar no YouTube" abrindo o login do Google na página.
+- [x] Biblioteca nativa: "Gostei", "Assistir mais tarde", suas playlists, novidades das inscrições e canais inscritos.
+- [x] Curtir e se inscrever pelo player (atualiza na hora e desfaz se o YouTube recusar).
+- [x] Validado no iPhone com a conta.
 
 #### Etapa 5.3 — Telas de navegação
 - [ ] Tela inicial e "Em alta" nativas.

@@ -16,6 +16,7 @@ struct ContentView: View {
         }
         .environmentObject(appModel.settings)
         .environmentObject(appModel.history)
+        .environmentObject(appModel.account)
         .onChange(of: scenePhase) { newPhase in
             appModel.handleScenePhase(newPhase)
         }
