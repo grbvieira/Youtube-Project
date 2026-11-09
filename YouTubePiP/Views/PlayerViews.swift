@@ -38,14 +38,22 @@ struct NativeVideoPanel: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
 
-            if !playback.title.isEmpty {
-                Text(playback.title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 8)
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(playback.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    SleepTimerBadge(playback: playback)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                PlayerOptionsMenu(playback: playback)
+                    .font(.headline)
+                RoutePickerButton()
+                    .frame(width: 28, height: 28)
             }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 8)
         }
         .background(.bar)
     }

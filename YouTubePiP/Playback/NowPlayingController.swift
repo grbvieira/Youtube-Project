@@ -7,6 +7,8 @@ import YouTubePiPCore
 final class NowPlayingController {
     /// Aba que controla a tela bloqueada no momento (so uma toca por vez).
     var owner: ObjectIdentifier?
+    /// Velocidade atual, para a barra de tempo da tela bloqueada andar no ritmo certo.
+    var playbackRate: Float = 1
     var onPlay: (() -> Void)?
     var onPause: (() -> Void)?
     var onNext: (() -> Void)?
@@ -37,7 +39,8 @@ final class NowPlayingController {
         info[MPMediaItemPropertyArtist] = track.artist
         info[MPMediaItemPropertyPlaybackDuration] = validTime(duration)
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = validTime(elapsedTime)
-        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(playbackRate) : 0.0
+        info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = Double(playbackRate)
         info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
@@ -57,7 +60,7 @@ final class NowPlayingController {
         guard isActive, var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
         info[MPMediaItemPropertyPlaybackDuration] = validTime(duration)
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = validTime(elapsedTime)
-        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(playbackRate) : 0.0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
     }

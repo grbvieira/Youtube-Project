@@ -1,4 +1,5 @@
 import SwiftUI
+import YouTubePiPCore
 
 /// Uma aba: player nativo (quando ativo), pagina e, abaixo dela, mini player e barra de navegacao.
 struct BrowserView: View {
@@ -7,7 +8,9 @@ struct BrowserView: View {
 
     /// Mostra "Inspecionar mídia" no menu. Vale para as duas abas.
     @AppStorage("debugToolsEnabled") private var debugToolsEnabled = false
+    @EnvironmentObject private var settings: AppSettings
     @State private var showsNowPlaying = false
+    @State private var showsHistory = false
 
     private static let messageDuration: UInt64 = 4_000_000_000
 
@@ -29,7 +32,7 @@ struct BrowserView: View {
             // Fora da pagina (nao por cima): a navegacao inferior do site continua acessivel.
             VStack(spacing: 0) {
                 Divider()
-                if playback.audioOnly && playback.isActive {
+                if playback.isAudioOnly && playback.isActive {
                     NowPlayingBar(playback: playback) { showsNowPlaying = true }
                     Divider()
                 }
@@ -51,6 +54,9 @@ struct BrowserView: View {
         }
         .sheet(isPresented: $showsNowPlaying) {
             NowPlayingSheet(playback: playback)
+        }
+        .sheet(isPresented: $showsHistory) {
+            HistorySheet()
         }
         .sheet(
             isPresented: Binding(
@@ -166,13 +172,40 @@ struct BrowserView: View {
                 Label("Recarregar", systemImage: "arrow.clockwise")
             }
 
+            Button(action: viewModel.openCopiedLink) {
+                Label("Abrir link copiado", systemImage: "doc.on.clipboard")
+            }
+
+            Button {
+                showsHistory = true
+            } label: {
+                Label("Histórico", systemImage: "clock.arrow.circlepath")
+            }
+
+            Divider()
+
+            if !viewModel.audioOnly {
+                Toggle(isOn: $settings.youtubeAudioOnly) {
+                    Label("Só áudio no YouTube", systemImage: "headphones")
+                }
+            }
+
+            Picker(selection: $settings.quality) {
+                ForEach(StreamQuality.allCases, id: \.self) { quality in
+                    Text(quality.title).tag(quality)
+                }
+            } label: {
+                Label("Qualidade: \(settings.quality.title)", systemImage: "dial.medium")
+            }
+            .pickerStyle(.menu)
+
+            Divider()
+
             if debugToolsEnabled {
                 Button(action: viewModel.inspectCurrentMedia) {
                     Label("Inspecionar mídia", systemImage: "magnifyingglass")
                 }
             }
-
-            Divider()
 
             Toggle(isOn: $debugToolsEnabled) {
                 Label("Ferramentas de depuração", systemImage: "ladybug")

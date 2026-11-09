@@ -2,11 +2,10 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
-    @State private var selectedService: MediaService = .youtube
     @StateObject private var appModel = AppModel()
 
     var body: some View {
-        TabView(selection: $selectedService) {
+        TabView(selection: $appModel.selectedService) {
             ForEach(MediaService.allCases) { service in
                 BrowserView(viewModel: appModel.viewModel(for: service))
                     .tabItem {
@@ -15,8 +14,14 @@ struct ContentView: View {
                     .tag(service)
             }
         }
+        .environmentObject(appModel.settings)
+        .environmentObject(appModel.history)
         .onChange(of: scenePhase) { newPhase in
             appModel.handleScenePhase(newPhase)
+        }
+        // ytpip://open?url=<link> ou ytpip://watch?v=<id>
+        .onOpenURL { url in
+            LinkRouter.shared.open(url)
         }
     }
 }

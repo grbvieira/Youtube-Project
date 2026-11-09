@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import UIKit
 import YouTubePiPCore
@@ -34,13 +35,23 @@ final class PlaybackController: ObservableObject {
     @Published private(set) var currentIndex = 0
     /// Mensagem passageira (erros); a interface a esconde depois de alguns segundos.
     @Published var message: String?
+    /// So audio: sempre no YouTube Music; no YouTube, quando ligado nas configuracoes.
+    @Published private(set) var isAudioOnly: Bool
+    @Published private(set) var rate: Float = 1
+    @Published private(set) var sleepTimer = SleepTimer()
+    /// Tempo restante do timer para dormir (atualizado a cada segundo).
+    @Published private(set) var sleepRemaining: TimeInterval?
 
     let player = NativePlayer()
-    let audioOnly: Bool
 
-    private let serviceName: String
+    private let service: MediaService
+    private let settings: AppSettings
+    private let history: HistoryStore
     private let resolver = YouTubeStreamResolver()
     private let nowPlaying: NowPlayingController
+    private var settingsObservers: Set<AnyCancellable> = []
+    private var sleepTask: Task<Void, Never>?
+    private var lastHistoryRecord = Date.distantPast
     private var queue = PlaybackQueue()
     /// Muda a cada nova fila; respostas de tarefas antigas sao descartadas.
     private var generation = UUID()
@@ -53,11 +64,26 @@ final class PlaybackController: ObservableObject {
 
     private static let prefetchCount = 5
     private static let restartThreshold: TimeInterval = 5
+    private static let historyInterval: TimeInterval = 5
 
-    init(audioOnly: Bool, serviceName: String, nowPlaying: NowPlayingController) {
-        self.audioOnly = audioOnly
-        self.serviceName = serviceName
+    init(service: MediaService, nowPlaying: NowPlayingController, settings: AppSettings, history: HistoryStore) {
+        self.service = service
         self.nowPlaying = nowPlaying
+        self.settings = settings
+        self.history = history
+        isAudioOnly = service.audioOnly || settings.youtubeAudioOnly
+
+        // Mudancas nas configuracoes valem para o que ja esta tocando.
+        if !service.audioOnly {
+            settings.$youtubeAudioOnly
+                .dropFirst()
+                .sink { [weak self] audioOnly in self?.setAudioOnly(audioOnly) }
+                .store(in: &settingsObservers)
+        }
+        settings.$quality
+            .dropFirst()
+            .sink { [weak self] quality in self?.applyQuality(quality) }
+            .store(in: &settingsObservers)
 
         player.onEvent = { [weak self] event in
             self?.handlePlayerEvent(event)
@@ -68,7 +94,9 @@ final class PlaybackController: ObservableObject {
     }
 
     var currentVideoID: String? { queue.current?.videoID }
-    var showsVideo: Bool { !audioOnly && isActive }
+    var showsVideo: Bool { !isAudioOnly && isActive }
+    private var isMusic: Bool { service.audioOnly }
+    private var serviceName: String { service.displayName }
 
     // MARK: - Comandos
 
@@ -76,17 +104,103 @@ final class PlaybackController: ObservableObject {
     func start(with snapshot: PageMediaSnapshot) {
         reset()
         // Filas de playlist/radio fazem sentido no YouTube Music; no YouTube toca so o video aberto.
-        queue = PlaybackQueue(snapshot: snapshot, includePageQueue: audioOnly)
+        queue = PlaybackQueue(snapshot: snapshot, includePageQueue: isMusic)
         isActive = true
         publishTrack()
         // Ativa a sessao agora, em primeiro plano: o iOS nao deixa iniciar audio em segundo plano.
         activateAudioSession()
         onEvent?(.started)
-        resolveAndPlay(at: queue.currentIndex, startTime: snapshot.currentTime, fallbackURL: snapshot.fallbackStreamURL)
+        resolveAndPlay(
+            at: queue.currentIndex,
+            startTime: startPosition(for: snapshot.currentTrack.videoID, requested: snapshot.currentTime),
+            fallbackURL: snapshot.fallbackStreamURL
+        )
 
-        if audioOnly, queue.tracks.count <= 1 {
+        if isMusic, queue.tracks.count <= 1 {
             loadPlaylist(snapshot.playlistID)
         }
+    }
+
+    /// Toca um video direto pelo ID (link aberto de fora ou item do historico), sem esperar a pagina.
+    func start(track: MediaTrack, startTime: TimeInterval?, playlistID: String?) {
+        start(with: PageMediaSnapshot(
+            currentTrack: track,
+            fallbackStreamURL: nil,
+            currentTime: startTime ?? 0,
+            playlistID: playlistID,
+            queue: []
+        ))
+    }
+
+    func setRate(_ rate: Float) {
+        self.rate = rate
+        player.rate = rate
+        nowPlaying.playbackRate = rate
+        updateNowPlaying()
+    }
+
+    /// Liga o timer para dormir, ou desliga com `nil`.
+    func setSleepTimer(_ option: SleepTimer.Option?) {
+        sleepTimer.set(option, now: Date())
+        sleepTask?.cancel()
+        sleepTask = nil
+        sleepRemaining = sleepTimer.remaining(now: Date())
+        guard sleepTimer.deadline != nil else { return }
+
+        sleepTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                let now = Date()
+                self.sleepRemaining = self.sleepTimer.remaining(now: now)
+                if self.sleepTimer.isExpired(now: now) {
+                    self.sleepTimerFired()
+                    return
+                }
+            }
+        }
+    }
+
+    private func sleepTimerFired() {
+        pause()
+        sleepTimer.set(nil, now: Date())
+        sleepTask?.cancel()
+        sleepTask = nil
+        sleepRemaining = nil
+        message = String(localized: "Timer para dormir: reprodução pausada.")
+    }
+
+    private func setAudioOnly(_ youtubeAudioOnly: Bool) {
+        isAudioOnly = service.audioOnly || youtubeAudioOnly
+        if player.hasItem {
+            player.configure(audioOnly: isAudioOnly, quality: settings.quality)
+        }
+    }
+
+    private func applyQuality(_ quality: StreamQuality) {
+        if player.hasItem {
+            player.configure(audioOnly: isAudioOnly, quality: quality)
+        }
+    }
+
+    /// Retoma de onde parou se o pedido for "do inicio" e o historico tiver uma posicao valida.
+    private func startPosition(for videoID: String, requested: TimeInterval) -> TimeInterval {
+        guard requested < Self.restartThreshold, let resume = history.resumePosition(for: videoID) else {
+            return requested
+        }
+        message = String(localized: "Continuando de \(formatTime(resume)).")
+        return resume
+    }
+
+    private func recordHistory(position: TimeInterval? = nil) {
+        guard let track = queue.current, player.hasItem else { return }
+        lastHistoryRecord = Date()
+        history.record(
+            track,
+            position: position ?? player.currentTime,
+            duration: player.duration > 0 ? player.duration : track.duration,
+            isMusic: isMusic
+        )
     }
 
     func togglePlayPause() {
@@ -107,20 +221,29 @@ final class PlaybackController: ObservableObject {
         guard player.hasItem else { return }
         player.pause()
         isPlaying = false
+        recordHistory()
         updateNowPlaying()
     }
 
     func skipToNext() {
         guard queue.hasNext else { return }
-        play(at: queue.currentIndex + 1)
+        recordHistory()
+        begin(at: queue.currentIndex + 1)
     }
 
     func skipToPrevious() {
         if player.currentTime > Self.restartThreshold || !queue.hasPrevious {
             seek(to: 0)
         } else {
-            play(at: queue.currentIndex - 1)
+            recordHistory()
+            begin(at: queue.currentIndex - 1)
         }
+    }
+
+    /// Comeca uma faixa da fila, retomando de onde parou quando fizer sentido.
+    private func begin(at index: Int) {
+        guard let track = queue[index] else { return }
+        play(at: index, startTime: startPosition(for: track.videoID, requested: 0))
     }
 
     func seek(to time: TimeInterval) {
@@ -135,7 +258,8 @@ final class PlaybackController: ObservableObject {
     /// Toca uma faixa especifica da fila (toque na lista "Tocando agora").
     func jump(to index: Int) {
         guard index != queue.currentIndex || !player.hasItem else { return }
-        play(at: index)
+        recordHistory()
+        begin(at: index)
     }
 
     func removeFromQueue(at index: Int) {
@@ -198,10 +322,9 @@ final class PlaybackController: ObservableObject {
         isActive = true
         isPlaying = false
         isPreparing = true
-        message = nil
         publishTrack()
         updateNowPlaying(isPlaying: false, elapsedTime: startTime)
-        player.load(url: streamURL, startTime: startTime, audioOnly: audioOnly)
+        player.load(url: streamURL, startTime: startTime, audioOnly: isAudioOnly, quality: settings.quality)
     }
 
     /// Resolve a URL pelo `videoID` e toca. `fallbackURL` (vista na pagina) so e usada se a resolucao falhar.
@@ -288,6 +411,7 @@ final class PlaybackController: ObservableObject {
     }
 
     private func reset() {
+        recordHistory()
         generation = UUID()
         [resolveTask, prefetchTask, playlistTask].forEach { $0?.cancel() }
         resolveTask = nil
@@ -341,12 +465,12 @@ final class PlaybackController: ObservableObject {
             isActive = true
             isPlaying = true
             isPreparing = false
-            message = nil
             duration = player.duration
             bindNowPlaying()
             updateNowPlaying(isPlaying: true)
             onEvent?(.ready)
             onEvent?(.started)
+            recordHistory()
             // O audio ja mantem o app vivo em segundo plano.
             endBackgroundTask()
             prefetchUpcoming()
@@ -360,9 +484,19 @@ final class PlaybackController: ObservableObject {
             if player.duration > 0, player.duration != duration {
                 duration = player.duration
             }
+            if isPlaying, Date().timeIntervalSince(lastHistoryRecord) >= Self.historyInterval {
+                recordHistory()
+            }
         case .finished:
-            if queue.hasNext {
-                skipToNext()
+            // Terminou: fica no historico como assistido (nao sera retomado).
+            recordHistory(position: player.duration)
+            if sleepTimer.stopsAtEndOfTrack {
+                isPlaying = false
+                setSleepTimer(nil)
+                updateNowPlaying(isPlaying: false)
+                message = String(localized: "Timer para dormir: reprodução pausada no fim da faixa.")
+            } else if queue.hasNext {
+                begin(at: queue.currentIndex + 1)
             } else {
                 isPlaying = false
                 updateNowPlaying(isPlaying: false)
@@ -402,6 +536,7 @@ final class PlaybackController: ObservableObject {
     /// A tela bloqueada e compartilhada pelas abas; quem toca assume os comandos.
     private func bindNowPlaying() {
         nowPlaying.owner = ObjectIdentifier(self)
+        nowPlaying.playbackRate = rate
         nowPlaying.onPlay = { [weak self] in self?.play() }
         nowPlaying.onPause = { [weak self] in self?.pause() }
         nowPlaying.onNext = { [weak self] in self?.skipToNext() }

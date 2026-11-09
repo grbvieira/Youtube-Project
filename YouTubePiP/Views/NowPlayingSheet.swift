@@ -86,6 +86,15 @@ struct NowPlayingSheet: View {
             }
             .font(.title)
             .buttonStyle(.plain)
+
+            HStack(spacing: 28) {
+                PlayerOptionsMenu(playback: playback)
+                    .font(.title3)
+                RoutePickerButton()
+                    .frame(width: 32, height: 32)
+            }
+
+            SleepTimerBadge(playback: playback)
         }
         .frame(maxWidth: .infinity)
     }

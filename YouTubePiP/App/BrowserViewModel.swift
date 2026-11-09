@@ -26,14 +26,16 @@ final class BrowserViewModel: ObservableObject {
 
     private weak var webView: WKWebView?
     private var progressObservation: NSKeyValueObservation?
+    /// Pagina pedida antes de a WebView existir (aba ainda nao aberta).
+    private var pendingPageURL: URL?
     private var diagnosticsSnapshot: PageMediaSnapshot?
     private var isCapturing = false
     /// Videos que o player nativo nao conseguiu tocar; ficam na pagina para nao entrar em loop.
     private var webOnlyVideoIDs = Set<String>()
 
-    init(service: MediaService, nowPlaying: NowPlayingController) {
+    init(service: MediaService, nowPlaying: NowPlayingController, settings: AppSettings, history: HistoryStore) {
         self.service = service
-        playback = PlaybackController(audioOnly: service.audioOnly, serviceName: service.displayName, nowPlaying: nowPlaying)
+        playback = PlaybackController(service: service, nowPlaying: nowPlaying, settings: settings, history: history)
         bridge = WebMediaBridge(audioOnly: service.audioOnly)
 
         bridge.onEvent = { [weak self] event in
@@ -57,9 +59,34 @@ final class BrowserViewModel: ObservableObject {
             Task { @MainActor [weak self] in self?.loadingProgress = progress }
         }
 
-        if webView.url == nil {
+        if let pendingPageURL {
+            self.pendingPageURL = nil
+            webView.load(URLRequest(url: pendingPageURL))
+        } else if webView.url == nil {
             loadHome()
         }
+    }
+
+    /// Abre um link vindo de fora: toca direto no player nativo e mostra a pagina do video.
+    func open(_ link: YouTubeLink) {
+        clearMessages()
+        if let videoID = link.videoID {
+            playback.start(track: MediaTrack(videoID: videoID), startTime: link.startTime, playlistID: link.playlistID)
+        }
+        if let webView {
+            webView.load(URLRequest(url: link.pageURL))
+        } else {
+            pendingPageURL = link.pageURL
+        }
+    }
+
+    /// Abre o link do YouTube que estiver na area de transferencia.
+    func openCopiedLink() {
+        guard let text = UIPasteboard.general.string, let link = YouTubeLink.firstLink(in: text) else {
+            statusMessage = String(localized: "Nenhum link do YouTube foi copiado.")
+            return
+        }
+        LinkRouter.shared.open(link)
     }
 
     func loadHome() {

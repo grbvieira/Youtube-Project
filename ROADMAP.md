@@ -37,15 +37,18 @@ Plano de evolucao do YouTube PiP. Atualizado em 2026-11-09.
 - [x] "Inspecionar mídia" só aparece com "Ferramentas de depuração" ligado no menu.
 - [x] Edição da fila no `YouTubePiPCore` com testes (22 no total).
 
-## Proximas fases
-
 ### Fase 4 — Funcionalidades
-- [ ] Timer para dormir (15/30/60 min ou fim da faixa).
-- [ ] Botao de AirPlay (`AVRoutePickerView`).
-- [ ] Velocidade de reproducao e qualidade (limite de bitrate, economia de dados).
-- [ ] Extensao de compartilhamento / esquema de URL para abrir links do YouTube no app.
-- [ ] Historico e "continuar de onde parou".
-- [ ] Modo somente audio tambem na aba YouTube (podcasts, videos longos).
+- [x] Timer para dormir (15/30/45/60 min ou fim da faixa), com aviso do tempo restante.
+- [x] Botão de AirPlay (`AVRoutePickerView`) no painel de vídeo e em "Tocando agora".
+- [x] Velocidade de reprodução (0,5× a 2×, com o pitch preservado), também na tela bloqueada.
+- [x] Qualidade: Automática, Economia de dados (480p) ou Mínima (360p), aplicada ao vivo.
+- [x] Modo "Só áudio no YouTube" (podcasts, vídeos longos), trocando sem recarregar.
+- [x] Histórico salvo em disco e "continuar de onde parou" (vídeos; no Music, só faixas longas).
+- [x] Abrir links: esquema `ytpip://open?url=...`, atalho "Abrir no YouTube PiP" (App Intent, usável na folha de compartilhar via Atalhos) e "Abrir link copiado".
+- Nota: uma extensão de compartilhamento própria não foi feita porque o iOS não permite que ela abra o app principal; o atalho cobre o mesmo uso.
+- [x] Regras de links, histórico, timer e qualidade no `YouTubePiPCore` (35 testes no total).
+
+## Proximas fases
 
 ### Fase 5 — Interface nativa via API (YouTubeKit)
 Objetivo: trocar a WebView por telas nativas, mais rapidas e fluidas, aos poucos, mantendo a WebView como reserva.

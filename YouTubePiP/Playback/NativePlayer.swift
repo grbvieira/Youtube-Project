@@ -1,6 +1,7 @@
 import AVFoundation
 import AVKit
 import UIKit
+import YouTubePiPCore
 
 /// View cuja camada e um `AVPlayerLayer`; necessaria para exibir video e para o PiP.
 final class PlayerLayerView: UIView {
@@ -97,24 +98,28 @@ final class NativePlayer: NSObject {
         }
     }
 
-    /// Carrega e toca a URL. Em modo audio limita a qualidade, ja que o video nao e exibido.
-    func load(url: URL, startTime: TimeInterval, audioOnly: Bool) {
+    /// Velocidade de reproducao (1 = normal). Vale tambem para as proximas faixas.
+    var rate: Float = 1 {
+        didSet {
+            player.defaultRate = rate
+            if player.timeControlStatus != .paused {
+                player.rate = rate
+            }
+        }
+    }
+
+    /// Carrega e toca a URL. Em modo audio a qualidade e limitada, ja que o video nao e exibido.
+    func load(url: URL, startTime: TimeInterval, audioOnly: Bool, quality: StreamQuality) {
         stop()
 
-        isAudioOnly = audioOnly
-        // Em modo audio a camada fica desligada: nada para exibir e o audio segue em segundo plano.
-        videoView.playerLayer.player = audioOnly ? nil : player
-        isVideoDetachedForBackground = false
         didReportReady = false
         hasItem = true
 
         let item = AVPlayerItem(url: url)
-        item.preferredForwardBufferDuration = audioOnly ? 30 : 0
-        if audioOnly {
-            // As variantes de 360p usam AAC-LC; abaixo disso o audio e HE-AAC de baixa taxa.
-            item.preferredPeakBitRate = 700_000
-            item.preferredMaximumResolution = CGSize(width: 640, height: 360)
-        }
+        // O pitch fica correto em outras velocidades.
+        item.audioTimePitchAlgorithm = .timeDomain
+        player.replaceCurrentItem(with: item)
+        configure(audioOnly: audioOnly, quality: quality)
 
         itemObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             let status = item.status
@@ -135,8 +140,26 @@ final class NativePlayer: NSObject {
             }
         ]
 
-        player.replaceCurrentItem(with: item)
         player.play()
+    }
+
+    /// Muda entre video e so audio (ou a qualidade) sem recarregar: o HLS adapta a variante.
+    func configure(audioOnly: Bool, quality: StreamQuality) {
+        isAudioOnly = audioOnly
+        // Em modo audio a camada fica desligada: nada para exibir e o audio segue em segundo plano.
+        videoView.playerLayer.player = audioOnly ? nil : player
+        isVideoDetachedForBackground = false
+        if audioOnly, isPictureInPictureActive {
+            pipController?.stopPictureInPicture()
+        }
+
+        guard let item = player.currentItem else { return }
+        let limits = quality.limits(audioOnly: audioOnly)
+        item.preferredPeakBitRate = limits.peakBitRate
+        item.preferredMaximumResolution = limits.maxWidth.flatMap { width in
+            limits.maxHeight.map { CGSize(width: width, height: $0) }
+        } ?? .zero
+        item.preferredForwardBufferDuration = audioOnly ? 30 : 0
     }
 
     func play() {
