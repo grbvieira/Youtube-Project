@@ -6,6 +6,9 @@ enum MediaService: String, CaseIterable, Hashable, Identifiable {
 
     var id: Self { self }
 
+    /// Nome exibido nas abas e na tela bloqueada (nome proprio, nao traduzido).
+    var displayName: String { rawValue }
+
     var homeURL: URL {
         switch self {
         case .youtube:

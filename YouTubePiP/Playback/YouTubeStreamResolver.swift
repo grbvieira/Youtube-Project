@@ -1,11 +1,13 @@
 import Foundation
 import YouTubeKit
+import YouTubePiPCore
 
-actor YouTubeAudioResolver {
+/// Descobre a URL tocavel (manifesto HLS) e a fila de um video usando o YouTubeKit.
+actor YouTubeStreamResolver {
     // `YouTubeModel` nao e `Sendable`; como so guarda configuracao (idioma, cookies),
     // cada requisicao cria o seu em vez de compartilhar uma instancia entre threads.
 
-    func resolve(_ track: NativeAudioTrack) async throws -> NativeAudioTrack {
+    func resolve(_ track: MediaTrack) async throws -> MediaTrack {
         let response = try await YTVideo(videoId: track.videoID)
             .fetchStreamingInfosWithDownloadFormatsThrowing(youtubeModel: YouTubeModel())
 
@@ -14,11 +16,11 @@ actor YouTubeAudioResolver {
         let fallbackFormat = response.defaultFormats.first { $0.url != nil }
         // O manifesto HLS e o formato nativo do AVPlayer (video H.264 + audio AAC, adaptativo).
         guard let streamURL = response.videoInfos.streamingURL ?? audioFormat?.url ?? fallbackFormat?.url else {
-            throw AudioResolverError.missingAudioStream
+            throw StreamResolverError.missingStream
         }
 
         let info = response.videoInfos
-        let resolved = NativeAudioTrack(
+        let resolved = MediaTrack(
             videoID: track.videoID,
             streamURL: streamURL,
             title: info.title ?? "",
@@ -30,7 +32,7 @@ actor YouTubeAudioResolver {
         return track.mergingMetadata(from: resolved)
     }
 
-    func queueTracks(currentTrack: NativeAudioTrack, playlistID: String?) async throws -> [NativeAudioTrack] {
+    func queueTracks(currentTrack: MediaTrack, playlistID: String?) async throws -> [MediaTrack] {
         if let playlistID, !playlistID.isEmpty {
             let browseID = playlistID.hasPrefix("VL") ? playlistID : "VL" + playlistID
             if let response = try? await YTPlaylist(playlistId: browseID)
@@ -52,8 +54,8 @@ actor YouTubeAudioResolver {
         return [currentTrack] + recommendations.filter { $0.videoID != currentTrack.videoID }
     }
 
-    private func makeTrack(_ video: YTVideo) -> NativeAudioTrack {
-        NativeAudioTrack(
+    private func makeTrack(_ video: YTVideo) -> MediaTrack {
+        MediaTrack(
             videoID: video.videoId,
             streamURL: nil,
             title: video.title ?? "",
@@ -75,10 +77,10 @@ actor YouTubeAudioResolver {
     }
 }
 
-private enum AudioResolverError: LocalizedError {
-    case missingAudioStream
+private enum StreamResolverError: LocalizedError {
+    case missingStream
 
     var errorDescription: String? {
-        "Nenhum fluxo de audio foi encontrado para esta faixa."
+        String(localized: "Nenhum stream tocável foi encontrado para este vídeo.")
     }
 }

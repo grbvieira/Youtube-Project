@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-11-09T05:12:00.000Z",
+  "pageURL": "https://m.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123",
+  "activeElement": {
+    "index": 0, "type": "video", "currentSrc": "blob:https://m.youtube.com/77aa", "src": "",
+    "paused": true, "muted": false, "readyState": 4, "networkState": 2,
+    "currentTime": 12.5, "duration": 213.04
+  },
+  "mediaElements": [],
+  "metadata": {
+    "videoID": "",
+    "playlistID": "",
+    "title": "Rick Astley - Never Gonna Give You Up (Official Video)",
+    "artist": "",
+    "artworkURL": "",
+    "currentTime": null
+  },
+  "queueItems": [],
+  "resourceURLs": []
+}

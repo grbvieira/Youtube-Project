@@ -19,17 +19,17 @@ Plano de evolucao do YouTube PiP. Atualizado em 2026-11-09.
 - [x] YouTube Music: ID/titulo/artista/tempo lidos do player da pagina (`getVideoData()`), nao da URL.
 - [x] Validado no iPhone: video com PiP e segundo plano, musica clicada tocando no player nativo, tela bloqueada, ligacoes/fone e convivencia com outros apps.
 
-## Proximas fases
-
 ### Fase 2 — Arquitetura
-- [ ] Dividir o `BrowserViewModel` (~1000 linhas): `WebMediaBridge` (scripts + mensagens da pagina), `PlaybackQueue` (fila/resolucao), `NowPlaying`/sessao, e a navegacao.
-- [ ] Mover os scripts JS para arquivos `.js` no bundle.
-- [ ] Renomear tipos `*Audio*` que agora tratam video tambem (`NativeAudioTrack`, `YouTubeAudioResolver`...).
-- [ ] Testes unitarios do parsing do diagnostico e da fila (JSONs reais como fixtures).
-- [ ] String Catalog (`Localizable.xcstrings`) com acentos.
-- [ ] `decidePolicyFor`: links externos no Safari; `target=_blank` sem sobrescrever a pagina.
-- [ ] `MutationObserver` com debounce (`requestAnimationFrame`).
-- [ ] Remover o entitlement de Keychain (nao usado).
+- [x] `BrowserViewModel` dividido: `WebMediaBridge` (scripts + eventos da página), `PlaybackController` (fila, resolução, tela bloqueada, sessão) e o próprio ViewModel só com navegação e a passagem página -> player.
+- [x] Scripts JS em `YouTubePiP/Scripts/*.js`; `MutationObserver` com debounce (`requestAnimationFrame`).
+- [x] Tipos renomeados: `MediaTrack`, `PageMediaSnapshot`, `YouTubeStreamResolver`.
+- [x] Pacote local `YouTubePiPCore` com a lógica pura e 19 testes (`swift test`), com fixtures reais.
+- [x] Corrigido: a fila do YouTube Music vinha sem IDs (o link sumiu do DOM); agora lê `item.data`.
+- [x] Política de links: externos no Safari, `youtube://` ignorado, login do Google dentro do app.
+- [x] Projeto com pasta sincronizada (sem editar o `.xcodeproj` a cada arquivo); entitlement de Keychain removido.
+- [x] Textos com acento, `developmentRegion = pt-BR` e `Localizable.xcstrings` (o Xcode preenche as chaves ao abrir o projeto).
+
+## Proximas fases
 
 ### Fase 3 — Experiencia de uso
 - [ ] Mensagens de status que somem sozinhas; indicador de carregamento (`isLoading`).

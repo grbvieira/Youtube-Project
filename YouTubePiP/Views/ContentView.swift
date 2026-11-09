@@ -10,7 +10,7 @@ struct ContentView: View {
             ForEach(MediaService.allCases) { service in
                 BrowserView(viewModel: appModel.viewModel(for: service))
                     .tabItem {
-                        Label(service.rawValue, systemImage: service.tabIcon)
+                        Label(service.displayName, systemImage: service.tabIcon)
                     }
                     .tag(service)
             }

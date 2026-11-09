@@ -11,8 +11,8 @@ final class AppModel: ObservableObject {
     init() {
         // A tela bloqueada e uma so; as abas se revezam no controle dela.
         let nowPlaying = NowPlayingController()
-        youtube = BrowserViewModel(service: .youtube, nowPlayingController: nowPlaying)
-        youtubeMusic = BrowserViewModel(service: .youtubeMusic, nowPlayingController: nowPlaying)
+        youtube = BrowserViewModel(service: .youtube, nowPlaying: nowPlaying)
+        youtubeMusic = BrowserViewModel(service: .youtubeMusic, nowPlaying: nowPlaying)
 
         for browser in browsers {
             browser.onPlaybackStarted = { [weak self, weak browser] in

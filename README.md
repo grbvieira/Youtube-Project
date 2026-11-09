@@ -1,50 +1,59 @@
 # YouTube PiP
 
-App iOS em SwiftUI que abre o YouTube e o YouTube Music em abas separadas, cada uma usando sua propria `WKWebView`.
+App iOS em SwiftUI que abre o YouTube e o YouTube Music em abas separadas, cada uma com sua própria `WKWebView`. Ao dar play na página, o conteúdo passa para o player nativo do iOS (`AVPlayer`), que continua em segundo plano e em Picture in Picture.
 
-## Recursos configurados
+## Recursos
 
-- Aba YouTube carregando `https://www.youtube.com`.
-- Aba YouTube Music carregando `https://music.youtube.com`.
-- Navegacao independente em cada aba, com login (cookies) compartilhado entre elas.
-- Apenas uma aba toca por vez: ao iniciar a reproducao em uma, a outra e pausada.
-- YouTube Music em modo somente audio, com o video oculto para manter apenas a reproducao sonora.
-- Navegacao basica: voltar, avancar, inicio e recarregar.
-- Ao dar play na pagina, o conteudo passa para o player nativo (`AVPlayer`): video em painel no topo da aba YouTube, com PiP manual e automatico ao sair do app; musica em mini player na aba YouTube Music, com fila e controles na tela bloqueada.
-- Midia inline habilitada.
-- Picture in Picture habilitado na configuracao da WebView.
-- Script injetado para preparar os elementos `<video>` do YouTube para PiP.
-- Sessao de audio na categoria `.playback`, ativada so quando o player nativo toca (nao interrompe outros apps ao abrir), com tratamento de interrupcoes (ligacoes) e pausa ao desconectar o fone.
-- Background mode `audio` no `Info.plist`, que cobre audio, AirPlay e Picture in Picture no iOS.
-- Keychain Sharing habilitado via `YouTubePiP.entitlements` para o grupo do proprio app.
+- Abas YouTube (`https://www.youtube.com`) e YouTube Music (`https://music.youtube.com`), com navegação independente e login (cookies) compartilhado.
+- Ao dar play na página, o app pausa a página e toca no player nativo:
+  - **YouTube:** vídeo num painel no topo da aba, com PiP manual e automático ao sair do app.
+  - **YouTube Music:** só áudio, num mini player, com a fila da página/playlist.
+- Controles na tela bloqueada e na Central de Controle (play/pausa, próxima, anterior, barra de tempo).
+- Apenas uma aba toca por vez.
+- Sessão de áudio `.playback` ativada só quando o player nativo toca (não interrompe outros apps ao abrir), com tratamento de interrupções (ligações) e pausa ao desconectar o fone.
+- Links externos abrem no Safari; o login do Google fica dentro do app.
+- Se o player nativo não conseguir abrir um vídeo, a página volta a tocar (sem segundo plano).
 
 ## Arquitetura
 
-- `ContentView.swift`: composicao das abas.
-- `AppModel.swift`: dono dos dois navegadores; coordena a reproducao entre abas e o ciclo de vida da cena.
-- `AudioSessionManager.swift`: categoria/ativacao da `AVAudioSession`, interrupcoes e mudancas de rota.
-- `BrowserView.swift`: interface do navegador, status e comandos de usuario.
-- `BrowserViewModel.swift`: estado de navegacao, passagem da pagina para o player nativo, fila e scripts de midia.
-- `NativePlayer.swift`: `AVPlayer` + `AVPictureInPictureController` (segundo plano e PiP).
-- `YouTubeWebView.swift`: ponte `UIViewRepresentable` entre SwiftUI e `WKWebView`.
-- `MediaService.swift`: configuracoes especificas do YouTube e YouTube Music.
+```
+YouTubePiP/
+  App/        YouTubePiPApp, AppModel (coordena as abas e o ciclo de vida),
+              BrowserViewModel (navegação + passagem página -> player), MediaService
+  Playback/   PlaybackController (fila, resolução, tela bloqueada, interrupções),
+              NativePlayer (AVPlayer + PiP), NowPlayingController, AudioSessionManager,
+              YouTubeStreamResolver (YouTubeKit -> manifesto HLS)
+  Web/        YouTubeWebView (WKWebView, política de links), WebMediaBridge (scripts e eventos da página)
+  Scripts/    *.js injetados/avaliados na página
+  Views/      ContentView, BrowserView, PlayerViews (painel de vídeo, mini player), MediaDiagnosticsView
+Packages/YouTubePiPCore/
+              Lógica pura e testável: MediaTrack, PageMediaParser, PlaybackQueue, LinkPolicy
+```
 
-## Roadmap
-
-Veja [ROADMAP.md](ROADMAP.md) para o que ja foi feito e as proximas fases.
+A pasta `YouTubePiP/` é sincronizada com o projeto: arquivos novos entram no build sem editar o `.xcodeproj`.
 
 ## Como rodar
-
-Abra o projeto no Xcode:
 
 ```sh
 open YouTubePiP.xcodeproj
 ```
 
-Selecione o target `YouTubePiP`, escolha um simulador ou iPhone real e rode.
+Selecione o target `YouTubePiP`, escolha um iPhone e rode.
 
-## Observacao importante
+## Testes
 
-O app habilita as capacidades de PiP e reproducao em segundo plano que o iOS permite para uma WebView. Ainda assim, o comportamento final do video do YouTube depende do proprio YouTube, do player web carregado, do tipo de conta/conteudo e das politicas do iOS. Ou seja: o app configura o suporte, mas nao consegue forcar o YouTube a liberar PiP/background playback quando o site bloquear esse fluxo.
+A lógica pura roda no Mac, sem simulador:
 
-O Keychain Sharing adicionado e uma permissao do app para o proprio chaveiro. Ele nao concede acesso direto a senhas, passkeys ou chaves de acesso do dominio `google.com`; essas credenciais continuam controladas pelo iOS/Safari/Google e so aparecem quando a plataforma e o site permitem.
+```sh
+cd Packages/YouTubePiPCore && swift test
+```
+
+Os fixtures em `Tests/YouTubePiPCoreTests/Fixtures` são capturas reais do `media-diagnostics.js`.
+
+## Roadmap
+
+Veja [ROADMAP.md](ROADMAP.md).
+
+## Observação
+
+O player nativo usa os streams obtidos pelo YouTubeKit (API interna do YouTube); mudanças do YouTube podem exigir atualizar o pacote. Reprodução em segundo plano fora do player oficial viola os Termos do YouTube: serve para uso pessoal, não para a App Store.

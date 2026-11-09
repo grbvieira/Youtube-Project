@@ -1,6 +1,8 @@
 import MediaPlayer
 import UIKit
+import YouTubePiPCore
 
+/// Tela bloqueada e Central de Controle: informacoes da faixa e comandos remotos.
 @MainActor
 final class NowPlayingController {
     /// Aba que controla a tela bloqueada no momento (so uma toca por vez).
@@ -21,7 +23,7 @@ final class NowPlayingController {
     }
 
     func update(
-        track: NativeAudioTrack,
+        track: MediaTrack,
         fallbackTitle: String,
         elapsedTime: TimeInterval,
         duration: TimeInterval,

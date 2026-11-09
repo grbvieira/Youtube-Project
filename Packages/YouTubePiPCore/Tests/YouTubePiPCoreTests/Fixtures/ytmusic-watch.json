@@ -1,0 +1,30 @@
+{
+  "capturedAt": "2026-11-09T05:10:00.000Z",
+  "pageURL": "https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=RDAMVMdQw4w9WgXcQ",
+  "activeElement": {
+    "index": 0, "type": "video", "currentSrc": "blob:https://music.youtube.com/0b0a", "src": "",
+    "paused": false, "muted": false, "readyState": 4, "networkState": 2,
+    "currentTime": 3.25, "duration": 249.521
+  },
+  "mediaElements": [],
+  "metadata": {
+    "videoID": "I_izvAbhExY",
+    "playlistID": "RDAMVMdQw4w9WgXcQ",
+    "title": "Stayin' Alive (From \"Saturday Night Fever\" Soundtrack)",
+    "artist": "Bee Gees",
+    "artworkURL": "https://i.ytimg.com/vi/I_izvAbhExY/hqdefault.jpg",
+    "currentTime": 124.612452
+  },
+  "queueItems": [
+    { "videoID": "dQw4w9WgXcQ", "title": "Never Gonna Give You Up", "artist": "Rick Astley", "artworkURL": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg", "duration": 214 },
+    { "videoID": "yPYZpwSpKmA", "title": "Together Forever (2022 Remaster)", "artist": "Rick Astley", "artworkURL": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "duration": 204 },
+    { "videoID": "I_izvAbhExY", "title": "", "artist": "", "artworkURL": "", "duration": 249 },
+    { "videoID": "", "title": "Sem ID", "artist": "", "artworkURL": "" },
+    { "videoID": "djV11Xbc914", "title": "Take On Me", "artist": "a-ha", "artworkURL": "https://i.ytimg.com/vi/djV11Xbc914/hq720.jpg", "duration": 244 }
+  ],
+  "resourceURLs": [
+    "https://rr5---sn-abc.googlevideo.com/videoplayback?expire=1794226565&id=o-AJ&itag=251&mime=audio%2Fwebm&dur=249.521&c=WEB_REMIX&range=3274073-3765990&rn=104&rbuf=109813&ump=1&srfvp=1&sig=AAA",
+    "https://rr5---sn-abc.googlevideo.com/videoplayback?expire=1794226565&id=o-AJ&itag=243&mime=video%2Fwebm&dur=249.499&c=WEB_REMIX&range=7156402-7793267&rn=105&rbuf=119909&ump=1&srfvp=1&sig=BBB",
+    "https://www.youtube.com/api/stats/qoe?event=streamingstats"
+  ]
+}
