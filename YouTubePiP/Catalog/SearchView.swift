@@ -4,9 +4,7 @@ import YouTubePiPCore
 /// Busca nativa: sugestoes, buscas recentes e resultados que tocam direto no player nativo.
 struct SearchView: View {
     let isMusic: Bool
-    let onPlayVideo: (MediaTrack) -> Void
-    let onPlayTracks: ([MediaTrack], Int) -> Void
-    let onOpenChannel: (String) -> Void
+    let actions: CatalogActions
 
     @StateObject private var model = SearchViewModel()
     @Environment(\.dismiss) private var dismiss
@@ -39,12 +37,7 @@ struct SearchView: View {
                         Button("Fechar") { dismiss() }
                     }
                 }
-                .navigationDestination(for: CatalogPlaylist.self) { playlist in
-                    PlaylistDetailView(playlist: playlist) { tracks, index in
-                        dismiss()
-                        onPlayTracks(tracks, index)
-                    }
-                }
+                .catalogDestinations(actions, onLeave: { dismiss() })
         }
     }
 
@@ -97,19 +90,15 @@ struct SearchView: View {
         case .video(let video):
             Button {
                 dismiss()
-                onPlayVideo(video.track)
+                actions.playVideo(video.track)
             } label: {
                 VideoRow(video: video)
             }
             .buttonStyle(.plain)
         case .channel(let channel):
-            Button {
-                dismiss()
-                onOpenChannel(channel.id)
-            } label: {
+            NavigationLink(value: channel) {
                 ChannelRow(channel: channel)
             }
-            .buttonStyle(.plain)
         case .playlist(let playlist):
             NavigationLink(value: playlist) {
                 PlaylistRow(playlist: playlist)

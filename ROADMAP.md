@@ -71,9 +71,12 @@ Testado no Mac antes de começar: busca, sugestões, paginação e playlists fun
 - [x] Validado no iPhone com a conta.
 
 #### Etapa 5.3 — Telas de navegação
-- [ ] Tela inicial e "Em alta" nativas.
-- [ ] Páginas de canal/artista nativas.
-- [ ] WebView como reserva para o que ainda não for nativo.
+- [x] Início nativo (botão da casinha; o globo volta para a página): continuar assistindo/ouvindo, "Para você" (recomendações da conta) e novidades das inscrições.
+- [x] Páginas de canal/artista nativas: banner, avatar, inscritos, botão de inscrição e abas Vídeos, Shorts, Ao vivo e Playlists, com "Tocar tudo" e rolagem infinita. Abrem a partir da busca, da Biblioteca e das próprias páginas.
+- [x] A página continua carregada por baixo e é usada para login, links e reserva; o modo escolhido fica salvo por aba.
+- Nota: "Em alta" ficou de fora — o YouTube removeu a página e a API responde erro 400.
+- Nota: sem login o YouTube não envia recomendações; o Início mostra o histórico e um convite para entrar.
+- [x] Validado no iPhone.
 
 Riscos: é a API interna do YouTube (não a oficial), então mudanças do YouTube podem quebrar telas até o YouTubeKit ser atualizado. A busca do YouTubeKit não tem filtro por tipo: os resultados são principalmente vídeos.
 

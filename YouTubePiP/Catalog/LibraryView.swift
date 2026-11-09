@@ -4,9 +4,7 @@ import YouTubePiPCore
 /// Biblioteca da conta: playlists (incluindo "Gostei" e "Assistir mais tarde"),
 /// videos novos das inscricoes e canais inscritos.
 struct LibraryView: View {
-    let onPlayVideo: (MediaTrack) -> Void
-    let onPlayTracks: ([MediaTrack], Int) -> Void
-    let onOpenChannel: (String) -> Void
+    let actions: CatalogActions
     let onSignIn: () -> Void
 
     @EnvironmentObject private var account: AccountSession
@@ -33,12 +31,7 @@ struct LibraryView: View {
                     Button("Fechar") { dismiss() }
                 }
             }
-            .navigationDestination(for: CatalogPlaylist.self) { playlist in
-                PlaylistDetailView(playlist: playlist) { tracks, index in
-                    dismiss()
-                    onPlayTracks(tracks, index)
-                }
-            }
+            .catalogDestinations(actions, onLeave: { dismiss() })
         }
         .task { await account.refresh() }
     }
@@ -159,7 +152,7 @@ struct LibraryView: View {
                         if case .video(let video) = item {
                             Button {
                                 dismiss()
-                                onPlayVideo(video.track)
+                                actions.playVideo(video.track)
                             } label: {
                                 VideoRow(video: video)
                             }
@@ -181,13 +174,9 @@ struct LibraryView: View {
         if let channels = model.channels {
             List {
                 ForEach(channels, id: \.id) { channel in
-                    Button {
-                        dismiss()
-                        onOpenChannel(channel.id)
-                    } label: {
+                    NavigationLink(value: channel) {
                         ChannelRow(channel: channel)
                     }
-                    .buttonStyle(.plain)
                     .onAppear { model.loadMoreChannels(after: channel) }
                 }
             }

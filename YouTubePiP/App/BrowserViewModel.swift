@@ -25,6 +25,10 @@ final class BrowserViewModel: ObservableObject {
     @Published var statusMessage: String?
     @Published private(set) var mediaDiagnostics: String?
     @Published private(set) var hasMediaCandidate = false
+    /// Mostra o Inicio nativo no lugar da pagina (a pagina continua carregada por baixo).
+    @Published var showsNativeHome: Bool {
+        didSet { UserDefaults.standard.set(showsNativeHome, forKey: nativeHomeKey) }
+    }
 
     private weak var webView: WKWebView?
     private var progressObservation: NSKeyValueObservation?
@@ -37,6 +41,7 @@ final class BrowserViewModel: ObservableObject {
 
     init(service: MediaService, nowPlaying: NowPlayingController, settings: AppSettings, history: HistoryStore) {
         self.service = service
+        showsNativeHome = UserDefaults.standard.bool(forKey: "nativeHome." + service.rawValue)
         playback = PlaybackController(service: service, nowPlaying: nowPlaying, settings: settings, history: history)
         bridge = WebMediaBridge(audioOnly: service.audioOnly)
 
@@ -49,6 +54,7 @@ final class BrowserViewModel: ObservableObject {
     }
 
     var audioOnly: Bool { service.audioOnly }
+    private var nativeHomeKey: String { "nativeHome." + service.rawValue }
     var supportsPictureInPicture: Bool { !audioOnly }
 
     // MARK: - Navegacao
@@ -65,7 +71,8 @@ final class BrowserViewModel: ObservableObject {
             self.pendingPageURL = nil
             webView.load(URLRequest(url: pendingPageURL))
         } else if webView.url == nil {
-            loadHome()
+            // Primeira abertura: carrega a pagina por baixo sem sair do Inicio nativo.
+            webView.load(URLRequest(url: service.homeURL))
         }
     }
 
@@ -98,7 +105,9 @@ final class BrowserViewModel: ObservableObject {
         load(url)
     }
 
+    /// Abrir algo na pagina sai do Inicio nativo.
     private func load(_ url: URL) {
+        showsNativeHome = false
         if let webView {
             webView.load(URLRequest(url: url))
         } else {
@@ -122,6 +131,7 @@ final class BrowserViewModel: ObservableObject {
 
     func loadHome() {
         clearMessages()
+        showsNativeHome = false
         webView?.load(URLRequest(url: service.homeURL))
     }
 

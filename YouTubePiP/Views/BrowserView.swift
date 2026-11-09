@@ -28,9 +28,20 @@ struct BrowserView: View {
                 NativeVideoPanel(playback: playback, onPictureInPicture: viewModel.togglePictureInPicture)
             }
 
-            YouTubeWebView(viewModel: viewModel)
-                .overlay(alignment: .top) { loadingBar }
-                .overlay(alignment: .bottom) { messages }
+            // A pagina continua carregada por baixo do Inicio nativo (login, reserva).
+            ZStack {
+                YouTubeWebView(viewModel: viewModel)
+                    .overlay(alignment: .top) { loadingBar }
+                    .opacity(viewModel.showsNativeHome ? 0 : 1)
+                    .allowsHitTesting(!viewModel.showsNativeHome)
+                    .accessibilityHidden(viewModel.showsNativeHome)
+
+                if viewModel.showsNativeHome {
+                    NativeHomeView(isMusic: viewModel.audioOnly, actions: catalogActions, onSignIn: viewModel.signIn)
+                        .transition(.opacity)
+                }
+            }
+            .overlay(alignment: .bottom) { messages }
 
             // Fora da pagina (nao por cima): a navegacao inferior do site continua acessivel.
             VStack(spacing: 0) {
@@ -63,18 +74,14 @@ struct BrowserView: View {
         }
         .sheet(isPresented: $showsLibrary) {
             LibraryView(
-                onPlayVideo: viewModel.play,
-                onPlayTracks: viewModel.play,
-                onOpenChannel: viewModel.openChannel,
+                actions: catalogActions,
                 onSignIn: viewModel.signIn
             )
         }
         .sheet(isPresented: $showsSearch) {
             SearchView(
                 isMusic: viewModel.audioOnly,
-                onPlayVideo: viewModel.play,
-                onPlayTracks: viewModel.play,
-                onOpenChannel: viewModel.openChannel
+                actions: catalogActions
             )
         }
         .sheet(
@@ -149,15 +156,18 @@ struct BrowserView: View {
             Button(action: viewModel.goBack) {
                 Image(systemName: "chevron.backward")
             }
-            .disabled(!viewModel.canGoBack)
+            .disabled(!viewModel.canGoBack || viewModel.showsNativeHome)
             .accessibilityLabel("Voltar")
 
             Spacer()
 
-            Button(action: viewModel.loadHome) {
-                Image(systemName: "house")
+            // Alterna entre o Inicio nativo e a pagina.
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { viewModel.showsNativeHome.toggle() }
+            } label: {
+                Image(systemName: viewModel.showsNativeHome ? "globe" : "house")
             }
-            .accessibilityLabel("Início")
+            .accessibilityLabel(viewModel.showsNativeHome ? "Mostrar página" : "Início")
 
             Spacer()
 
@@ -195,6 +205,14 @@ struct BrowserView: View {
         .frame(height: 48)
     }
 
+    private var catalogActions: CatalogActions {
+        CatalogActions(
+            playVideo: viewModel.play,
+            playTracks: viewModel.play,
+            openChannelPage: viewModel.openChannel
+        )
+    }
+
     /// Foto da conta quando logado; icone generico quando nao.
     @ViewBuilder
     private var libraryIcon: some View {
@@ -217,6 +235,10 @@ struct BrowserView: View {
                 Label("Avançar", systemImage: "chevron.forward")
             }
             .disabled(!viewModel.canGoForward)
+
+            Button(action: viewModel.loadHome) {
+                Label("Início da página", systemImage: "globe")
+            }
 
             Button(action: viewModel.reload) {
                 Label("Recarregar", systemImage: "arrow.clockwise")

@@ -62,6 +62,41 @@ struct VideoAccountState: Equatable, Sendable {
     let channelName: String?
 }
 
+/// Abas de um canal.
+enum ChannelTab: String, CaseIterable, Hashable, Sendable {
+    case videos, shorts, live, playlists
+
+    var title: String {
+        switch self {
+        case .videos: String(localized: "Vídeos")
+        case .shorts: String(localized: "Shorts")
+        case .live: String(localized: "Ao vivo")
+        case .playlists: String(localized: "Playlists")
+        }
+    }
+
+    fileprivate var requestType: ChannelInfosResponse.RequestTypes {
+        switch self {
+        case .videos: .videos
+        case .shorts: .shorts
+        case .live: .directs
+        case .playlists: .playlists
+        }
+    }
+}
+
+struct ChannelDetails: Sendable {
+    let id: String
+    let name: String
+    let handle: String?
+    let subscribers: String?
+    let avatarURL: URL?
+    let bannerURL: URL?
+    let tabs: [ChannelTab]
+    /// So vem com login.
+    let isSubscribed: Bool?
+}
+
 struct ChannelPage: Sendable {
     let channels: [CatalogChannel]
     let continuation: String?
@@ -79,6 +114,8 @@ struct CatalogPage: Sendable {
     let items: [CatalogItem]
     /// Token para buscar a proxima pagina, se houver.
     let continuation: String?
+    /// A continuacao da tela inicial tambem exige este valor.
+    var visitorData: String? = nil
 }
 
 struct PlaylistPage: Sendable {
@@ -157,6 +194,87 @@ actor YouTubeCatalog {
             tracks: response.results.map(Self.track(from:)),
             continuation: response.continuationToken
         )
+    }
+
+    // MARK: - Inicio
+
+    /// Recomendacoes da tela inicial. Sem login o YouTube devolve uma lista vazia.
+    func home(continuation: String? = nil, visitorData: String? = nil) async throws -> CatalogPage {
+        let model = Self.makeModel(cookies: cookies)
+        if let continuation, let visitorData {
+            let response = try await HomeScreenResponse.Continuation.sendThrowingRequest(
+                youtubeModel: model,
+                data: [.continuation: continuation, .visitorData: visitorData]
+            )
+            return CatalogPage(items: Self.items(from: response.results), continuation: response.continuationToken, visitorData: visitorData)
+        }
+        let response = try await HomeScreenResponse.sendThrowingRequest(youtubeModel: model, data: [:])
+        return CatalogPage(items: Self.items(from: response.results), continuation: response.continuationToken, visitorData: response.visitorData)
+    }
+
+    // MARK: - Canais
+
+    /// Respostas de canal guardadas para buscar as proximas paginas de cada aba.
+    private var channelResponses: [String: ChannelInfosResponse] = [:]
+
+    func channel(_ channelID: String) async throws -> ChannelDetails {
+        let response = try await YTChannel(channelId: channelID)
+            .fetchInfosThrowing(youtubeModel: Self.makeModel(cookies: cookies), useCookies: cookies != nil)
+        channelResponses[channelID] = response
+        let tabs = ChannelTab.allCases.filter { response.requestParams[$0.requestType] != nil }
+        return ChannelDetails(
+            id: channelID,
+            name: response.name ?? "",
+            handle: response.handle,
+            subscribers: response.subscriberCount,
+            avatarURL: response.avatarThumbnails.last?.url.withHTTPS,
+            bannerURL: response.bannerThumbnails.last?.url.withHTTPS,
+            tabs: tabs,
+            isSubscribed: cookies == nil ? nil : response.subscribeStatus
+        )
+    }
+
+    /// Primeira pagina de uma aba do canal (chame `channel(_:)` antes).
+    func channelItems(_ channelID: String, tab: ChannelTab) async throws -> CatalogPage {
+        guard let base = channelResponses[channelID] else {
+            _ = try await channel(channelID)
+            return try await channelItems(channelID, tab: tab)
+        }
+        let response = try await base.getChannelContentThrowing(
+            forType: tab.requestType,
+            youtubeModel: Self.makeModel(cookies: cookies),
+            useCookies: cookies != nil
+        )
+        channelResponses[channelID] = response
+        let content = response.channelContentStore[tab.requestType] as? any ListableChannelContent
+        return CatalogPage(
+            items: Self.items(from: content?.items ?? []),
+            continuation: response.channelContentContinuationStore[tab.requestType] ?? nil
+        )
+    }
+
+    func moreChannelItems(_ channelID: String, tab: ChannelTab) async throws -> CatalogPage {
+        guard var response = channelResponses[channelID] else { return CatalogPage(items: [], continuation: nil) }
+        let model = Self.makeModel(cookies: cookies)
+        let items: [any YTSearchResult]
+        let token: String?
+        switch tab {
+        case .videos:
+            let page = try await response.getChannelContentContinuationThrowing(ChannelInfosResponse.Videos.self, youtubeModel: model)
+            (items, token) = (page.contents?.items ?? [], page.newContinuationToken)
+        case .shorts:
+            let page = try await response.getChannelContentContinuationThrowing(ChannelInfosResponse.Shorts.self, youtubeModel: model)
+            (items, token) = (page.contents?.items ?? [], page.newContinuationToken)
+        case .live:
+            let page = try await response.getChannelContentContinuationThrowing(ChannelInfosResponse.Directs.self, youtubeModel: model)
+            (items, token) = (page.contents?.items ?? [], page.newContinuationToken)
+        case .playlists:
+            let page = try await response.getChannelContentContinuationThrowing(ChannelInfosResponse.Playlists.self, youtubeModel: model)
+            (items, token) = (page.contents?.items ?? [], page.newContinuationToken)
+        }
+        response.channelContentContinuationStore[tab.requestType] = token
+        channelResponses[channelID] = response
+        return CatalogPage(items: Self.items(from: items), continuation: token)
     }
 
     // MARK: - Conta
