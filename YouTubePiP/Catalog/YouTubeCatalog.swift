@@ -97,6 +97,28 @@ struct ChannelDetails: Sendable {
     let isSubscribed: Bool?
 }
 
+/// Informacoes extras do video que esta tocando.
+struct VideoDetails: Sendable {
+    let chapters: [VideoChapter]
+    let commentsCount: String?
+    let commentsContinuation: String?
+}
+
+struct CatalogComment: Identifiable, Hashable, Sendable {
+    let id: String
+    let author: String
+    let avatarURL: URL?
+    let text: String
+    let timePosted: String?
+    let likes: String?
+    let repliesCount: String?
+}
+
+struct CommentsPage: Sendable {
+    let comments: [CatalogComment]
+    let continuation: String?
+}
+
 struct ChannelPage: Sendable {
     let channels: [CatalogChannel]
     let continuation: String?
@@ -275,6 +297,50 @@ actor YouTubeCatalog {
         response.channelContentContinuationStore[tab.requestType] = token
         channelResponses[channelID] = response
         return CatalogPage(items: Self.items(from: items), continuation: token)
+    }
+
+    // MARK: - Detalhes do video
+
+    func details(for videoID: String) async throws -> VideoDetails {
+        let response = try await YTVideo(videoId: videoID)
+            .fetchMoreInfosThrowing(youtubeModel: Self.makeModel(cookies: cookies), useCookies: cookies != nil)
+        let chapters = (response.chapters ?? []).compactMap { chapter -> VideoChapter? in
+            guard let start = chapter.startTimeSeconds else { return nil }
+            return VideoChapter(title: chapter.title ?? "", start: TimeInterval(start))
+        }
+        return VideoDetails(
+            chapters: VideoChapters.normalized(chapters),
+            commentsCount: response.commentsCount,
+            commentsContinuation: response.commentsContinuationToken
+        )
+    }
+
+    /// Comentarios. A primeira pagina usa o token de `details(for:)`; as seguintes, o token da pagina anterior.
+    func comments(token: String, isFirstPage: Bool) async throws -> CommentsPage {
+        let model = Self.makeModel(cookies: cookies)
+        let comments: [YTComment]
+        let next: String?
+        if isFirstPage {
+            let response = try await VideoCommentsResponse.sendThrowingRequest(youtubeModel: model, data: [.continuation: token])
+            (comments, next) = (response.results, response.continuationToken)
+        } else {
+            let response = try await VideoCommentsResponse.Continuation.sendThrowingRequest(youtubeModel: model, data: [.continuation: token])
+            (comments, next) = (response.results, response.continuationToken)
+        }
+        return CommentsPage(
+            comments: comments.map { comment in
+                CatalogComment(
+                    id: comment.commentIdentifier,
+                    author: comment.sender?.name ?? comment.sender?.handle ?? "",
+                    avatarURL: comment.sender?.thumbnails.last?.url.withHTTPS,
+                    text: comment.text,
+                    timePosted: comment.timePosted,
+                    likes: comment.likesCount,
+                    repliesCount: comment.totalRepliesNumber
+                )
+            },
+            continuation: next
+        )
     }
 
     // MARK: - Conta

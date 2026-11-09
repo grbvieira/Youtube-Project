@@ -7,6 +7,8 @@ struct NativeHomeView: View {
     let isMusic: Bool
     let actions: CatalogActions
     let onSignIn: () -> Void
+    /// O Inicio nativo nao carregou nada: a aba volta para a pagina.
+    let onFailure: () -> Void
 
     @EnvironmentObject private var account: AccountSession
     @EnvironmentObject private var history: HistoryStore
@@ -25,7 +27,13 @@ struct NativeHomeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .catalogDestinations(actions)
             .refreshable { await model.load(signedIn: account.isSignedIn, force: true) }
-            .task(id: account.isSignedIn) { await model.load(signedIn: account.isSignedIn) }
+            .task(id: account.isSignedIn) {
+                await model.load(signedIn: account.isSignedIn)
+                // Erro sem nada para mostrar (nem historico): melhor mostrar a pagina do que uma tela vazia.
+                if model.errorMessage != nil, model.recommendations.isEmpty, model.subscriptions.isEmpty, resumable.isEmpty {
+                    onFailure()
+                }
+            }
         }
     }
 

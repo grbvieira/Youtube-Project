@@ -5,6 +5,7 @@ import YouTubePiPCore
 struct NowPlayingSheet: View {
     @ObservedObject var playback: PlaybackController
     @Environment(\.dismiss) private var dismiss
+    @State private var showsComments = false
 
     var body: some View {
         NavigationStack {
@@ -13,6 +14,31 @@ struct NowPlayingSheet: View {
                     header
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 16, trailing: 16))
+                }
+
+                if !playback.chapters.isEmpty {
+                    Section("Capítulos") {
+                        ForEach(Array(playback.chapters.enumerated()), id: \.offset) { index, chapter in
+                            Button {
+                                playback.seek(toChapter: index)
+                            } label: {
+                                HStack {
+                                    Text(formatTime(chapter.start))
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 56, alignment: .leading)
+                                    Text(chapter.title)
+                                        .font(.subheadline.weight(index == playback.currentChapterIndex ? .bold : .regular))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    if index == playback.currentChapterIndex {
+                                        Image(systemName: "speaker.wave.2.fill").foregroundStyle(.tint)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
 
                 Section {
@@ -48,6 +74,9 @@ struct NowPlayingSheet: View {
             }
         }
         .presentationDragIndicator(.visible)
+        .sheet(isPresented: $showsComments) {
+            VideoDetailsSheet(playback: playback, initialSection: .comments)
+        }
     }
 
     private var header: some View {
@@ -90,6 +119,16 @@ struct NowPlayingSheet: View {
             HStack(spacing: 28) {
                 AccountActionsView(videoID: playback.currentTrackID)
                     .font(.title3)
+                if playback.commentsContinuation != nil {
+                    Button {
+                        showsComments = true
+                    } label: {
+                        Image(systemName: "text.bubble")
+                    }
+                    .font(.title3)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Comentários")
+                }
                 PlayerOptionsMenu(playback: playback)
                     .font(.title3)
                 RoutePickerButton()

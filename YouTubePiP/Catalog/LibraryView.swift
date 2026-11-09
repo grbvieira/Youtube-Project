@@ -95,6 +95,12 @@ struct LibraryView: View {
             CatalogMessage(systemImage: "exclamationmark.triangle", title: String(localized: "Não foi possível carregar"), message: error) {
                 Button("Tentar novamente") { Task { await model.loadSection(force: true) } }
                     .buttonStyle(.borderedProminent)
+                Button("Abrir na página") {
+                    dismiss()
+                    actions.openPage(model.section == .playlists
+                        ? PageURL.library(isMusic: actions.isMusic)
+                        : PageURL.subscriptions(isMusic: actions.isMusic))
+                }
             }
         } else {
             switch model.section {

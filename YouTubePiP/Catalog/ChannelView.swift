@@ -43,10 +43,7 @@ struct ChannelView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Button {
-                        onLeave()
-                        actions.openChannelPage(channel.id)
-                    } label: {
+                    Button(action: openPage) {
                         Label("Abrir na página", systemImage: "globe")
                     }
                 } label: {
@@ -65,6 +62,11 @@ struct ChannelView: View {
         } message: {
             Text(model.subscriptionError ?? "")
         }
+    }
+
+    private func openPage() {
+        onLeave()
+        actions.openPage(PageURL.channel(channel.id, isMusic: actions.isMusic))
     }
 
     private var header: some View {
@@ -125,10 +127,15 @@ struct ChannelView: View {
         let items = model.items[model.tab] ?? []
 
         if let error = model.errorMessage {
-            Text(error)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding()
+            VStack(spacing: 12) {
+                Text(error)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button("Abrir na página", action: openPage)
+                    .buttonStyle(.borderedProminent)
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
         } else if model.items[model.tab] == nil {
             ProgressView().frame(maxWidth: .infinity).padding()
         } else if items.isEmpty {

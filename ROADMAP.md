@@ -80,5 +80,17 @@ Testado no Mac antes de começar: busca, sugestões, paginação e playlists fun
 
 Riscos: é a API interna do YouTube (não a oficial), então mudanças do YouTube podem quebrar telas até o YouTubeKit ser atualizado. A busca do YouTubeKit não tem filtro por tipo: os resultados são principalmente vídeos.
 
+### Fase 6 — Refinamentos
+
+#### Etapa 6.1 — Robustez, capítulos e comentários
+- [x] Robustez: telas nativas que falham oferecem "Abrir na página" (busca, playlist, canal, biblioteca); o Início nativo volta sozinho para a página se não carregar nada. Endereços de reserva no `YouTubePiPCore`, com testes.
+- [x] Capítulos: capítulo atual abaixo do título; lista para pular (no painel de vídeo, tocando no título; no Music, em "Tocando agora").
+- [x] Comentários com rolagem infinita, curtidas e número de respostas.
+- Nota: legendas ficaram de fora. A lista de legendas vem, mas o servidor de legendas (`/api/timedtext`) responde vazio sem o "PO token" que só o player oficial gera (mudança do YouTube em 2025), e o manifesto HLS não traz faixa de legenda.
+- [x] Validado no iPhone.
+
+#### Etapa 6.2 — YouTube Music de verdade
+- [ ] Busca, álbuns, artistas e rádios do próprio YouTube Music (API do Music, não a do YouTube).
+
 ## Observacao
 Reproducao em segundo plano e uso dos streams fora do player oficial violam os Termos do YouTube: serve para uso pessoal, nao para a App Store.

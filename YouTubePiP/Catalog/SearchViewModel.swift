@@ -25,7 +25,7 @@ final class SearchViewModel: ObservableObject {
     private var continuation: String?
     private var suggestionTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
-    private var searchedQuery = ""
+    private(set) var searchedQuery = ""
 
     private static let recentKey = "recentSearches"
     private static let suggestionDelay: UInt64 = 250_000_000

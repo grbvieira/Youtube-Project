@@ -57,16 +57,24 @@ struct SearchView: View {
             ) {
                 Button("Tentar novamente") { model.submit() }
                     .buttonStyle(.borderedProminent)
+                Button("Buscar na página", action: openSearchPage)
             }
         case .results where model.items.isEmpty:
             CatalogMessage(
                 systemImage: "magnifyingglass",
                 title: String(localized: "Nenhum resultado"),
                 message: String(localized: "Tente outras palavras.")
-            )
+            ) {
+                Button("Buscar na página", action: openSearchPage)
+            }
         case .results:
             resultsList
         }
+    }
+
+    private func openSearchPage() {
+        dismiss()
+        actions.openPage(PageURL.search(model.searchedQuery, isMusic: isMusic))
     }
 
     private var resultsList: some View {

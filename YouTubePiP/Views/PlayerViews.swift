@@ -5,6 +5,8 @@ struct NativeVideoPanel: View {
     @ObservedObject var playback: PlaybackController
     let onPictureInPicture: () -> Void
 
+    @State private var showsDetails = false
+
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
@@ -39,13 +41,32 @@ struct NativeVideoPanel: View {
             .padding(.vertical, 8)
 
             HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(playback.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    SleepTimerBadge(playback: playback)
+                // Tocar no titulo abre capitulos e comentarios.
+                Button {
+                    showsDetails = true
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Text(playback.title)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                            Image(systemName: "chevron.down")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                        if let chapter = playback.currentChapter, !chapter.title.isEmpty {
+                            Label(chapter.title, systemImage: "list.bullet")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        SleepTimerBadge(playback: playback)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.plain)
+                .accessibilityHint("Mostra capítulos e comentários")
 
                 AccountActionsView(videoID: playback.currentTrackID)
                     .font(.headline)
@@ -58,6 +79,9 @@ struct NativeVideoPanel: View {
             .padding(.bottom, 8)
         }
         .background(.bar)
+        .sheet(isPresented: $showsDetails) {
+            VideoDetailsSheet(playback: playback)
+        }
     }
 }
 

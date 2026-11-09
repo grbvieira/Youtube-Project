@@ -37,7 +37,12 @@ struct BrowserView: View {
                     .accessibilityHidden(viewModel.showsNativeHome)
 
                 if viewModel.showsNativeHome {
-                    NativeHomeView(isMusic: viewModel.audioOnly, actions: catalogActions, onSignIn: viewModel.signIn)
+                    NativeHomeView(
+                        isMusic: viewModel.audioOnly,
+                        actions: catalogActions,
+                        onSignIn: viewModel.signIn,
+                        onFailure: viewModel.nativeHomeFailed
+                    )
                         .transition(.opacity)
                 }
             }
@@ -207,9 +212,10 @@ struct BrowserView: View {
 
     private var catalogActions: CatalogActions {
         CatalogActions(
+            isMusic: viewModel.audioOnly,
             playVideo: viewModel.play,
             playTracks: viewModel.play,
-            openChannelPage: viewModel.openChannel
+            openPage: viewModel.openPage
         )
     }
 

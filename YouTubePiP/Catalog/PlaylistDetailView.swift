@@ -5,6 +5,7 @@ import YouTubePiPCore
 struct PlaylistDetailView: View {
     let playlist: CatalogPlaylist
     let onPlay: ([MediaTrack], Int) -> Void
+    let onOpenPage: () -> Void
 
     @State private var tracks: [MediaTrack] = []
     @State private var title = ""
@@ -27,6 +28,7 @@ struct PlaylistDetailView: View {
                 ) {
                     Button("Tentar novamente") { Task { await load() } }
                         .buttonStyle(.borderedProminent)
+                    Button("Abrir na página", action: onOpenPage)
                 }
             } else {
                 list

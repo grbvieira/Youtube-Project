@@ -41,6 +41,12 @@ final class PlaybackController: ObservableObject {
     @Published private(set) var sleepTimer = SleepTimer()
     /// Tempo restante do timer para dormir (atualizado a cada segundo).
     @Published private(set) var sleepRemaining: TimeInterval?
+    /// Capitulos do video atual (vazio se nao tiver) e o que esta tocando.
+    @Published private(set) var chapters: [VideoChapter] = []
+    @Published private(set) var currentChapterIndex: Int?
+    /// Comentarios do video atual: quantidade e token da primeira pagina.
+    @Published private(set) var commentsCount: String?
+    @Published private(set) var commentsContinuation: String?
 
     let player = NativePlayer()
 
@@ -52,6 +58,8 @@ final class PlaybackController: ObservableObject {
     private var settingsObservers: Set<AnyCancellable> = []
     private var sleepTask: Task<Void, Never>?
     private var lastHistoryRecord = Date.distantPast
+    private var detailsTask: Task<Void, Never>?
+    private var detailsVideoID: String?
     private var queue = PlaybackQueue()
     /// Muda a cada nova fila; respostas de tarefas antigas sao descartadas.
     private var generation = UUID()
@@ -94,6 +102,46 @@ final class PlaybackController: ObservableObject {
     }
 
     var currentVideoID: String? { queue.current?.videoID }
+
+    var currentChapter: VideoChapter? {
+        currentChapterIndex.flatMap { chapters.indices.contains($0) ? chapters[$0] : nil }
+    }
+
+    func seek(toChapter index: Int) {
+        guard chapters.indices.contains(index) else { return }
+        seek(to: chapters[index].start)
+        currentChapterIndex = index
+    }
+
+    /// Busca capitulos e comentarios do video atual (uma vez por video).
+    private func loadDetails() {
+        guard let videoID = queue.current?.videoID, videoID != detailsVideoID else { return }
+        detailsVideoID = videoID
+        detailsTask?.cancel()
+        detailsTask = Task { [weak self] in
+            guard let details = try? await YouTubeCatalog.shared.details(for: videoID) else { return }
+            guard let self, !Task.isCancelled, self.queue.current?.videoID == videoID else { return }
+            self.chapters = details.chapters
+            self.commentsCount = details.commentsCount
+            self.commentsContinuation = details.commentsContinuation
+            self.updateCurrentChapter()
+        }
+    }
+
+    private func clearDetails() {
+        detailsTask?.cancel()
+        detailsTask = nil
+        detailsVideoID = nil
+        chapters = []
+        currentChapterIndex = nil
+        commentsCount = nil
+        commentsContinuation = nil
+    }
+
+    private func updateCurrentChapter() {
+        let index = VideoChapters.currentIndex(in: chapters, at: elapsed)
+        if index != currentChapterIndex { currentChapterIndex = index }
+    }
     /// Video atual a partir do estado publicado (para as telas reagirem a troca de faixa).
     var currentTrackID: String? {
         queueTracks.indices.contains(currentIndex) ? queueTracks[currentIndex].videoID : nil
@@ -435,6 +483,7 @@ final class PlaybackController: ObservableObject {
         playlistTask = nil
         player.stop()
         queue = PlaybackQueue()
+        clearDetails()
         retriedVideoIDs = []
         isActive = false
         isPlaying = false
@@ -465,6 +514,9 @@ final class PlaybackController: ObservableObject {
     }
 
     private func publishTrack() {
+        if let detailsVideoID, detailsVideoID != queue.current?.videoID {
+            clearDetails()
+        }
         title = queue.current?.title ?? ""
         artist = queue.current?.artist ?? ""
         artworkURL = queue.current?.artworkURL
@@ -487,6 +539,7 @@ final class PlaybackController: ObservableObject {
             onEvent?(.ready)
             onEvent?(.started)
             recordHistory()
+            loadDetails()
             // O audio ja mantem o app vivo em segundo plano.
             endBackgroundTask()
             prefetchUpcoming()
@@ -500,6 +553,7 @@ final class PlaybackController: ObservableObject {
             if player.duration > 0, player.duration != duration {
                 duration = player.duration
             }
+            if !chapters.isEmpty { updateCurrentChapter() }
             if isPlaying, Date().timeIntervalSince(lastHistoryRecord) >= Self.historyInterval {
                 recordHistory()
             }

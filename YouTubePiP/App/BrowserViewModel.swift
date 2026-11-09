@@ -97,12 +97,15 @@ final class BrowserViewModel: ObservableObject {
         playback.start(tracks: tracks, startIndex: startIndex)
     }
 
-    /// Canais ainda abrem na pagina (tela nativa de canal fica para a etapa 5.3).
-    func openChannel(_ channelID: String) {
-        var components = URLComponents(url: service.homeURL, resolvingAgainstBaseURL: false)
-        components?.path = "/channel/" + channelID
-        guard let url = components?.url else { return }
+    /// Abre uma pagina na WebView (reserva das telas nativas).
+    func openPage(_ url: URL) {
         load(url)
+    }
+
+    /// O Inicio nativo falhou: mostra a pagina e avisa.
+    func nativeHomeFailed() {
+        showsNativeHome = false
+        statusMessage = String(localized: "O Início nativo não carregou; mostrando a página.")
     }
 
     /// Abrir algo na pagina sai do Inicio nativo.
