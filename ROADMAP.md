@@ -51,15 +51,29 @@ Plano de evolucao do YouTube PiP. Atualizado em 2026-11-09.
 ## Proximas fases
 
 ### Fase 5 — Interface nativa via API (YouTubeKit)
-Objetivo: trocar a WebView por telas nativas, mais rapidas e fluidas, aos poucos, mantendo a WebView como reserva.
+Objetivo: trocar a WebView por telas nativas, mais rápidas e fluidas, aos poucos, mantendo a WebView como reserva.
 
-- [ ] Busca nativa (videos, musicas, artistas, playlists) abrindo direto no `NativePlayer`.
-- [ ] YouTube Music nativo: fila, biblioteca e playlists.
-- [ ] Login: entrar uma vez numa WebView e reaproveitar os cookies da conta nas chamadas da API (biblioteca, inscricoes, historico, "Gostei").
-- [ ] Tela inicial e paginas de canal/artista nativas.
-- [ ] WebView como reserva para o que ainda nao for nativo.
+Testado no Mac antes de começar: busca, sugestões, paginação e playlists funcionam sem login; com os cookies da conta, o YouTubeKit também oferece biblioteca, playlists, inscrições, feed, histórico, curtir e se inscrever.
 
-Riscos: e a API interna do YouTube (nao a oficial), entao mudancas do YouTube podem quebrar telas ate o YouTubeKit ser atualizado. E bem mais trabalho que as outras fases, porque a interface inteira e refeita.
+#### Etapa 5.1 — Busca nativa
+- [x] Botão "Buscar" nas duas abas: sugestões enquanto digita, buscas recentes (sem repetir, ignorando acentos) e rolagem infinita.
+- [x] Vídeos tocam direto no player nativo; no Music, em áudio, com fila de recomendados.
+- [x] Playlists nativas com "Tocar tudo", "Aleatório" e tocar a partir de um item.
+- [x] Canais abrem na página (tela nativa fica para a 5.3).
+- [x] Se o player nativo falhar num vídeo vindo da busca, a página abre esse vídeo.
+- [x] Validado no iPhone.
+
+#### Etapa 5.2 — Conta (login reaproveitado)
+- [ ] Ler os cookies de login da WebView (só na memória, enviados só ao youtube.com).
+- [ ] Biblioteca nativa: suas playlists, "Gostei", inscrições e feed de inscrições.
+- [ ] Curtir e se inscrever pelo player.
+
+#### Etapa 5.3 — Telas de navegação
+- [ ] Tela inicial e "Em alta" nativas.
+- [ ] Páginas de canal/artista nativas.
+- [ ] WebView como reserva para o que ainda não for nativo.
+
+Riscos: é a API interna do YouTube (não a oficial), então mudanças do YouTube podem quebrar telas até o YouTubeKit ser atualizado. A busca do YouTubeKit não tem filtro por tipo: os resultados são principalmente vídeos.
 
 ## Observacao
 Reproducao em segundo plano e uso dos streams fora do player oficial violam os Termos do YouTube: serve para uso pessoal, nao para a App Store.

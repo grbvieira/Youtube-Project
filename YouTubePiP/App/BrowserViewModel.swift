@@ -73,10 +73,34 @@ final class BrowserViewModel: ObservableObject {
         if let videoID = link.videoID {
             playback.start(track: MediaTrack(videoID: videoID), startTime: link.startTime, playlistID: link.playlistID)
         }
+        load(link.pageURL)
+    }
+
+    // MARK: - Telas nativas (busca, playlists)
+
+    func play(_ track: MediaTrack) {
+        clearMessages()
+        playback.start(track: track, startTime: nil, playlistID: nil)
+    }
+
+    func play(_ tracks: [MediaTrack], startIndex: Int) {
+        clearMessages()
+        playback.start(tracks: tracks, startIndex: startIndex)
+    }
+
+    /// Canais ainda abrem na pagina (tela nativa de canal fica para a etapa 5.3).
+    func openChannel(_ channelID: String) {
+        var components = URLComponents(url: service.homeURL, resolvingAgainstBaseURL: false)
+        components?.path = "/channel/" + channelID
+        guard let url = components?.url else { return }
+        load(url)
+    }
+
+    private func load(_ url: URL) {
         if let webView {
-            webView.load(URLRequest(url: link.pageURL))
+            webView.load(URLRequest(url: url))
         } else {
-            pendingPageURL = link.pageURL
+            pendingPageURL = url
         }
     }
 
@@ -221,7 +245,14 @@ final class BrowserViewModel: ObservableObject {
             webOnlyVideoIDs.insert(videoID)
         }
         statusMessage = String(localized: "Não foi possível abrir no player nativo; tocando na página (sem segundo plano).")
-        bridge.resumeMedia()
+
+        // Veio da busca/historico: a pagina pode estar em outro lugar; abre o video nela.
+        let pageVideoID = webView?.url.flatMap(YouTubeLink.parse)?.videoID
+        if let videoID, pageVideoID != videoID {
+            load(YouTubeLink(videoID: videoID, isMusic: service.audioOnly).pageURL)
+        } else {
+            bridge.resumeMedia()
+        }
     }
 
     // MARK: - Comandos da interface

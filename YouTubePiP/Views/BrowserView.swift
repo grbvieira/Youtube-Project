@@ -11,6 +11,7 @@ struct BrowserView: View {
     @EnvironmentObject private var settings: AppSettings
     @State private var showsNowPlaying = false
     @State private var showsHistory = false
+    @State private var showsSearch = false
 
     private static let messageDuration: UInt64 = 4_000_000_000
 
@@ -57,6 +58,14 @@ struct BrowserView: View {
         }
         .sheet(isPresented: $showsHistory) {
             HistorySheet()
+        }
+        .sheet(isPresented: $showsSearch) {
+            SearchView(
+                isMusic: viewModel.audioOnly,
+                onPlayVideo: viewModel.play,
+                onPlayTracks: viewModel.play,
+                onOpenChannel: viewModel.openChannel
+            )
         }
         .sheet(
             isPresented: Binding(
@@ -147,6 +156,15 @@ struct BrowserView: View {
                 Image(systemName: "house")
             }
             .accessibilityLabel("Início")
+
+            Spacer()
+
+            Button {
+                showsSearch = true
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+            .accessibilityLabel("Buscar")
 
             if viewModel.supportsPictureInPicture {
                 Spacer()

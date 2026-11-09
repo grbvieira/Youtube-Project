@@ -1,7 +1,7 @@
 import Foundation
 
 /// Um video ou musica identificado pelo `videoID` do YouTube.
-public struct MediaTrack: Identifiable, Equatable, Sendable {
+public struct MediaTrack: Identifiable, Hashable, Sendable {
     public let videoID: String
     /// URL tocavel pelo player nativo (normalmente um manifesto HLS). `nil` ate ser resolvida.
     public var streamURL: URL?

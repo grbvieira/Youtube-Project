@@ -132,6 +132,18 @@ final class PlaybackController: ObservableObject {
         ))
     }
 
+    /// Toca uma lista (playlist nativa) a partir de `startIndex`.
+    func start(tracks: [MediaTrack], startIndex: Int) {
+        guard !tracks.isEmpty else { return }
+        reset()
+        queue = PlaybackQueue(tracks: tracks, currentIndex: startIndex)
+        isActive = true
+        publishTrack()
+        activateAudioSession()
+        onEvent?(.started)
+        begin(at: queue.currentIndex)
+    }
+
     func setRate(_ rate: Float) {
         self.rate = rate
         player.rate = rate
