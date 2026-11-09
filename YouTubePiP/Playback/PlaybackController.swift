@@ -26,6 +26,13 @@ final class PlaybackController: ObservableObject {
     @Published private(set) var elapsed: TimeInterval = 0
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var canSkipToNext = false
+    @Published private(set) var artworkURL: URL?
+    /// Resolvendo a URL ou carregando o stream.
+    @Published private(set) var isPreparing = false
+    /// Fila completa e posicao atual, para a tela "Tocando agora".
+    @Published private(set) var queueTracks: [MediaTrack] = []
+    @Published private(set) var currentIndex = 0
+    /// Mensagem passageira (erros); a interface a esconde depois de alguns segundos.
     @Published var message: String?
 
     let player = NativePlayer()
@@ -125,6 +132,25 @@ final class PlaybackController: ObservableObject {
         updateNowPlaying(elapsedTime: target)
     }
 
+    /// Toca uma faixa especifica da fila (toque na lista "Tocando agora").
+    func jump(to index: Int) {
+        guard index != queue.currentIndex || !player.hasItem else { return }
+        play(at: index)
+    }
+
+    func removeFromQueue(at index: Int) {
+        guard queue.remove(at: index) else { return }
+        publishTrack()
+        updateNowPlaying()
+    }
+
+    func moveInQueue(from source: Int, to destination: Int) {
+        queue.move(from: source, to: destination)
+        publishTrack()
+        updateNowPlaying()
+        prefetchUpcoming()
+    }
+
     /// Fecha o player nativo.
     func stop() {
         reset()
@@ -171,6 +197,7 @@ final class PlaybackController: ObservableObject {
         activateAudioSession()
         isActive = true
         isPlaying = false
+        isPreparing = true
         message = nil
         publishTrack()
         updateNowPlaying(isPlaying: false, elapsedTime: startTime)
@@ -188,9 +215,7 @@ final class PlaybackController: ObservableObject {
         isPlaying = false
         queue.moveTo(index)
         let generation = generation
-        message = track.title.isEmpty
-            ? String(localized: "Preparando o player...")
-            : String(localized: "Preparando \(track.title)...")
+        isPreparing = true
         publishTrack()
         updateNowPlaying(isPlaying: false, elapsedTime: startTime)
         // Sem audio tocando, o iOS pode suspender o app antes de a faixa ficar pronta.
@@ -257,6 +282,7 @@ final class PlaybackController: ObservableObject {
                 guard let resolved = try? await resolver.resolve(track) else { continue }
                 guard let self, !Task.isCancelled, self.generation == generation else { return }
                 self.queue.storePrefetched(resolved)
+                self.publishTrack()
             }
         }
     }
@@ -272,6 +298,7 @@ final class PlaybackController: ObservableObject {
         retriedVideoIDs = []
         isActive = false
         isPlaying = false
+        isPreparing = false
         isPictureInPictureActive = false
         elapsed = 0
         duration = 0
@@ -286,6 +313,7 @@ final class PlaybackController: ObservableObject {
         player.stop()
         isActive = false
         isPlaying = false
+        isPreparing = false
         isPictureInPictureActive = false
         clearNowPlayingIfOwned()
         endBackgroundTask()
@@ -299,7 +327,10 @@ final class PlaybackController: ObservableObject {
     private func publishTrack() {
         title = queue.current?.title ?? ""
         artist = queue.current?.artist ?? ""
+        artworkURL = queue.current?.artworkURL
         canSkipToNext = queue.hasNext
+        if queueTracks != queue.tracks { queueTracks = queue.tracks }
+        if currentIndex != queue.currentIndex { currentIndex = queue.currentIndex }
     }
 
     // MARK: - Eventos do player
@@ -309,6 +340,7 @@ final class PlaybackController: ObservableObject {
         case .ready:
             isActive = true
             isPlaying = true
+            isPreparing = false
             message = nil
             duration = player.duration
             bindNowPlaying()

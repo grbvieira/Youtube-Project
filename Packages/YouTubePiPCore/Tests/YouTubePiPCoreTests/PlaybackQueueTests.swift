@@ -110,4 +110,59 @@ final class PlaybackQueueTests: XCTestCase {
         XCTAssertFalse(queue.moveTo(9))
         XCTAssertEqual(queue.currentIndex, 1)
     }
+
+    // MARK: - Edicao pelo usuario
+
+    private func ids(_ queue: PlaybackQueue) -> String { queue.tracks.map(\.videoID).joined() }
+
+    private func queue(_ ids: String, current: Int) -> PlaybackQueue {
+        PlaybackQueue(tracks: ids.map { MediaTrack(videoID: String($0)) }, currentIndex: current)
+    }
+
+    func testRemoveKeepsCurrentTrack() {
+        var queue = queue("ABCDE", current: 2)
+
+        XCTAssertFalse(queue.remove(at: 2), "a faixa atual nao sai")
+        XCTAssertTrue(queue.remove(at: 0))
+        XCTAssertEqual(ids(queue), "BCDE")
+        XCTAssertEqual(queue.current?.videoID, "C")
+
+        XCTAssertTrue(queue.remove(at: 3))
+        XCTAssertEqual(ids(queue), "BCD")
+        XCTAssertEqual(queue.current?.videoID, "C")
+        XCTAssertFalse(queue.remove(at: 9))
+    }
+
+    func testMoveFollowsOnMoveConvention() {
+        var down = queue("ABCDE", current: 0)
+        down.move(from: 1, to: 4) // B para antes do E
+        XCTAssertEqual(ids(down), "ACDBE")
+
+        var up = queue("ABCDE", current: 0)
+        up.move(from: 4, to: 1) // E para antes do B
+        XCTAssertEqual(ids(up), "AEBCD")
+
+        var end = queue("ABC", current: 0)
+        end.move(from: 0, to: 3)
+        XCTAssertEqual(ids(end), "BCA")
+
+        var noop = queue("ABC", current: 1)
+        noop.move(from: 1, to: 2)
+        noop.move(from: 5, to: 0)
+        XCTAssertEqual(ids(noop), "ABC")
+    }
+
+    func testMoveKeepsTheSameCurrentTrack() {
+        for source in 0..<5 {
+            for destination in 0...5 {
+                for current in 0..<5 {
+                    var queue = queue("ABCDE", current: current)
+                    let playing = queue.current?.videoID
+                    queue.move(from: source, to: destination)
+                    XCTAssertEqual(queue.current?.videoID, playing, "move(\(source), \(destination)) com atual \(current)")
+                    XCTAssertEqual(Set(queue.tracks.map(\.videoID)), Set(["A", "B", "C", "D", "E"]))
+                }
+            }
+        }
+    }
 }

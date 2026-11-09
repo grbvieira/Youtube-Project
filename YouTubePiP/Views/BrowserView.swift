@@ -1,9 +1,15 @@
 import SwiftUI
 
-/// Uma aba: player nativo (quando ativo), pagina, mensagens e barra de navegacao.
+/// Uma aba: player nativo (quando ativo), pagina e, abaixo dela, mini player e barra de navegacao.
 struct BrowserView: View {
     @ObservedObject var viewModel: BrowserViewModel
     @ObservedObject var playback: PlaybackController
+
+    /// Mostra "Inspecionar mídia" no menu. Vale para as duas abas.
+    @AppStorage("debugToolsEnabled") private var debugToolsEnabled = false
+    @State private var showsNowPlaying = false
+
+    private static let messageDuration: UInt64 = 4_000_000_000
 
     init(viewModel: BrowserViewModel) {
         self.viewModel = viewModel
@@ -16,21 +22,36 @@ struct BrowserView: View {
                 NativeVideoPanel(playback: playback, onPictureInPicture: viewModel.togglePictureInPicture)
             }
 
-            ZStack(alignment: .bottom) {
-                YouTubeWebView(viewModel: viewModel)
+            YouTubeWebView(viewModel: viewModel)
+                .overlay(alignment: .top) { loadingBar }
+                .overlay(alignment: .bottom) { messages }
 
-                VStack(spacing: 8) {
-                    statusPanel
-
-                    if playback.audioOnly && playback.isActive {
-                        NowPlayingBar(playback: playback)
-                    }
-
-                    browserToolbar
+            // Fora da pagina (nao por cima): a navegacao inferior do site continua acessivel.
+            VStack(spacing: 0) {
+                Divider()
+                if playback.audioOnly && playback.isActive {
+                    NowPlayingBar(playback: playback) { showsNowPlaying = true }
+                    Divider()
                 }
+                browserToolbar
             }
+            .background(.bar)
         }
         .background(Color(.systemBackground))
+        .animation(.easeInOut(duration: 0.2), value: playback.isActive)
+        .animation(.easeInOut(duration: 0.2), value: viewModel.transientMessage)
+        .task(id: viewModel.transientMessage) {
+            guard viewModel.transientMessage != nil else { return }
+            try? await Task.sleep(nanoseconds: Self.messageDuration)
+            guard !Task.isCancelled else { return }
+            viewModel.dismissTransientMessage()
+        }
+        .onChange(of: playback.isActive) { isActive in
+            if !isActive { showsNowPlaying = false }
+        }
+        .sheet(isPresented: $showsNowPlaying) {
+            NowPlayingSheet(playback: playback)
+        }
         .sheet(
             isPresented: Binding(
                 get: { viewModel.mediaDiagnostics != nil },
@@ -53,9 +74,20 @@ struct BrowserView: View {
     }
 
     @ViewBuilder
-    private var statusPanel: some View {
+    private var loadingBar: some View {
+        if viewModel.isLoading {
+            ProgressView(value: max(viewModel.loadingProgress, 0.05))
+                .progressViewStyle(.linear)
+                .tint(.red)
+                .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var messages: some View {
         if let message = viewModel.errorMessage {
-            messageCard {
+            // Erro de carregamento: fica ate o usuario agir.
+            VStack(spacing: 12) {
                 Text(message)
                 Button {
                     viewModel.loadHome()
@@ -64,31 +96,38 @@ struct BrowserView: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
-        } else if let message = viewModel.statusMessage ?? playback.message {
-            messageCard {
-                Text(message)
-            }
+            .font(.callout)
+            .multilineTextAlignment(.center)
+            .padding(18)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding()
+        } else if let message = viewModel.transientMessage {
+            // Aviso passageiro: some sozinho ou com um toque.
+            Text(message)
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.regularMaterial)
+                .clipShape(Capsule())
+                .padding()
+                .onTapGesture(perform: viewModel.dismissTransientMessage)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint("Toque para fechar")
         }
     }
 
-    private func messageCard(@ViewBuilder content: () -> some View) -> some View {
-        VStack(spacing: 12, content: content)
-            .font(.callout)
-            .multilineTextAlignment(.center)
-            .foregroundStyle(.primary)
-            .padding(18)
-            .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .padding(.horizontal)
-    }
-
     private var browserToolbar: some View {
-        HStack(spacing: 12) {
+        HStack {
             Button(action: viewModel.goBack) {
                 Image(systemName: "chevron.backward")
             }
             .disabled(!viewModel.canGoBack)
             .accessibilityLabel("Voltar")
+
+            Spacer()
 
             Button(action: viewModel.goForward) {
                 Image(systemName: "chevron.forward")
@@ -96,35 +135,51 @@ struct BrowserView: View {
             .disabled(!viewModel.canGoForward)
             .accessibilityLabel("Avançar")
 
+            Spacer()
+
             Button(action: viewModel.loadHome) {
                 Image(systemName: "house")
             }
             .accessibilityLabel("Início")
 
-            Button(action: viewModel.reload) {
-                Image(systemName: "arrow.clockwise")
-            }
-            .accessibilityLabel("Recarregar")
-
             if viewModel.supportsPictureInPicture {
+                Spacer()
+
                 Button(action: viewModel.togglePictureInPicture) {
                     Image(systemName: playback.isPictureInPictureActive ? "pip.exit" : "pip.enter")
                 }
                 .accessibilityLabel(playback.isPictureInPictureActive ? "Sair do Picture in Picture" : "Picture in Picture")
             }
 
-            if viewModel.audioOnly {
-                Button(action: viewModel.inspectCurrentMedia) {
-                    Image(systemName: "magnifyingglass")
-                }
-                .accessibilityLabel("Inspecionar mídia")
-            }
+            Spacer()
+
+            moreMenu
         }
-        .font(.headline)
+        .font(.title3)
+        .padding(.horizontal, 28)
         .frame(height: 48)
-        .padding(.horizontal, 18)
-        .background(.ultraThinMaterial)
-        .clipShape(Capsule())
-        .padding(.bottom, 12)
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Button(action: viewModel.reload) {
+                Label("Recarregar", systemImage: "arrow.clockwise")
+            }
+
+            if debugToolsEnabled {
+                Button(action: viewModel.inspectCurrentMedia) {
+                    Label("Inspecionar mídia", systemImage: "magnifyingglass")
+                }
+            }
+
+            Divider()
+
+            Toggle(isOn: $debugToolsEnabled) {
+                Label("Ferramentas de depuração", systemImage: "ladybug")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel("Mais opções")
     }
 }

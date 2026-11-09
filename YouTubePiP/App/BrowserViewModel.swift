@@ -17,12 +17,15 @@ final class BrowserViewModel: ObservableObject {
     @Published private(set) var canGoBack = false
     @Published private(set) var canGoForward = false
     @Published private(set) var isLoading = false
+    /// Progresso estimado do carregamento da pagina (0...1).
+    @Published private(set) var loadingProgress: Double = 0
     @Published private(set) var errorMessage: String?
     @Published var statusMessage: String?
     @Published private(set) var mediaDiagnostics: String?
     @Published private(set) var hasMediaCandidate = false
 
     private weak var webView: WKWebView?
+    private var progressObservation: NSKeyValueObservation?
     private var diagnosticsSnapshot: PageMediaSnapshot?
     private var isCapturing = false
     /// Videos que o player nativo nao conseguiu tocar; ficam na pagina para nao entrar em loop.
@@ -49,6 +52,10 @@ final class BrowserViewModel: ObservableObject {
     func attach(_ webView: WKWebView) {
         self.webView = webView
         bridge.webView = webView
+        progressObservation = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] _, change in
+            let progress = change.newValue ?? 0
+            Task { @MainActor [weak self] in self?.loadingProgress = progress }
+        }
 
         if webView.url == nil {
             loadHome()
@@ -104,6 +111,14 @@ final class BrowserViewModel: ObservableObject {
     private func updateNavigationState(_ webView: WKWebView) {
         canGoBack = webView.canGoBack
         canGoForward = webView.canGoForward
+    }
+
+    /// Mensagem passageira atual (da aba ou do player).
+    var transientMessage: String? { statusMessage ?? playback.message }
+
+    func dismissTransientMessage() {
+        statusMessage = nil
+        playback.message = nil
     }
 
     private func clearMessages() {

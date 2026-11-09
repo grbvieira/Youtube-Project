@@ -74,6 +74,39 @@ public struct PlaybackQueue: Equatable, Sendable {
         return tracks[(currentIndex + 1)..<end].filter { $0.streamURL == nil }
     }
 
+    // MARK: - Edicao pelo usuario
+
+    /// Remove uma faixa da fila. A faixa atual nao pode ser removida (retorna `false`).
+    @discardableResult
+    public mutating func remove(at index: Int) -> Bool {
+        guard tracks.indices.contains(index), index != currentIndex else { return false }
+        tracks.remove(at: index)
+        if index < currentIndex {
+            currentIndex -= 1
+        }
+        return true
+    }
+
+    /// Move a faixa em `source` para antes da posicao `destination` (mesma convencao de
+    /// `onMove` do SwiftUI: `destination` vai de 0 a `tracks.count`). A faixa atual continua atual.
+    public mutating func move(from source: Int, to destination: Int) {
+        guard tracks.indices.contains(source), (0...tracks.count).contains(destination) else { return }
+        let target = destination > source ? destination - 1 : destination
+        guard target != source else { return }
+
+        let track = tracks.remove(at: source)
+        tracks.insert(track, at: target)
+
+        if source == currentIndex {
+            currentIndex = target
+        } else {
+            var index = currentIndex
+            if source < index { index -= 1 }
+            if target <= index { index += 1 }
+            currentIndex = index
+        }
+    }
+
     /// Substitui a fila pela da playlist, mantendo a faixa atual (e o que ja foi resolvido dela).
     /// Retorna `false` se nada mudou (playlist vazia ou a faixa atual mudou nesse meio tempo).
     @discardableResult

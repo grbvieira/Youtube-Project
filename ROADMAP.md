@@ -29,13 +29,15 @@ Plano de evolucao do YouTube PiP. Atualizado em 2026-11-09.
 - [x] Projeto com pasta sincronizada (sem editar o `.xcodeproj` a cada arquivo); entitlement de Keychain removido.
 - [x] Textos com acento, `developmentRegion = pt-BR` e `Localizable.xcstrings` (o Xcode preenche as chaves ao abrir o projeto).
 
-## Proximas fases
+### Fase 3 — Experiência de uso
+- [x] Avisos passageiros que somem em 4 s (ou com um toque); erros de carregamento continuam com "Tentar novamente".
+- [x] Barra de progresso do carregamento da página; "preparando" vira indicador no player, não mensagem.
+- [x] Barra inferior fora da página (não cobre mais a navegação do site), com menu "Mais opções".
+- [x] Mini player do Music com capa e barra de tempo; toque abre "Tocando agora" com capa grande, controles e fila (tocar, reordenar, remover).
+- [x] "Inspecionar mídia" só aparece com "Ferramentas de depuração" ligado no menu.
+- [x] Edição da fila no `YouTubePiPCore` com testes (22 no total).
 
-### Fase 3 — Experiencia de uso
-- [ ] Mensagens de status que somem sozinhas; indicador de carregamento (`isLoading`).
-- [ ] Barra inferior sem cobrir a navegacao do site (`safeAreaInset`).
-- [ ] Mini player do Music com capa, barra de tempo e fila visivel/editavel.
-- [ ] Diagnostico de midia escondido atras de uma opcao de depuracao.
+## Proximas fases
 
 ### Fase 4 — Funcionalidades
 - [ ] Timer para dormir (15/30/60 min ou fim da faixa).
